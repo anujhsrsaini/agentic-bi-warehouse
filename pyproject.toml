@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-bi-warehouse"
+version = "0.1.0"
+description = "Governed Agentic BI & Poly-Warehouse System powered by DuckDB, SQLGlot AST Guardrails, and FastMCP"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Anuj Saini", email = "anuj@example.com"}
+]
+dependencies = [
+    "duckdb>=1.1.0",
+    "pyarrow>=15.0.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "sqlglot>=25.0.0",
+    "rich>=13.7.0",
+    "pyyaml>=6.0.0",
+    "mcp>=1.2.0",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "psycopg[binary]>=3.1.0",
+    "adbc-driver-postgresql>=0.10.0",
+]
+snowflake = [
+    "snowflake-connector-python[pandas]>=3.7.0",
+]
+bigquery = [
+    "google-cloud-bigquery>=3.20.0",
+    "google-cloud-bigquery-storage>=2.24.0",
+]
+clickhouse = [
+    "clickhouse-connect>=0.7.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+]
+all = [
+    "agentic-bi-warehouse[postgres,snowflake,bigquery,clickhouse,dev]"
+]
+
+[project.scripts]
+agentic-bi = "src.cli:main"
+agentic-bi-mcp = "src.mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "eval*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"

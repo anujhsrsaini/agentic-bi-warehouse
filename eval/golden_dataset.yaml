@@ -1,0 +1,96 @@
+version: "1.0"
+benchmark_name: "Spider 2.0-Style Governed Analytics Evaluation Benchmark"
+
+test_cases:
+  # Tier 1: Simple Aggregations & Metrics
+  - id: "T1_001"
+    tier: "simple"
+    question: "What is our current ARR?"
+    metric: "arr"
+    expected_sql: "SELECT SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+
+  - id: "T1_002"
+    tier: "simple"
+    question: "What is our current Monthly Recurring Revenue?"
+    metric: "mrr"
+    expected_sql: "SELECT SUM(mrr_amount_usd) AS mrr FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+
+  - id: "T1_003"
+    tier: "simple"
+    question: "How many active customers do we have?"
+    metric: "active_customers"
+    expected_sql: "SELECT COUNT(DISTINCT customer_id) AS active_customers FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+
+  - id: "T1_004"
+    tier: "simple"
+    question: "What is our total gross cash collected?"
+    metric: "gross_cash_collected"
+    expected_sql: "SELECT SUM(total_amount_usd) AS gross_cash_collected FROM fct_invoices WHERE (status = 'paid') LIMIT 100;"
+
+  # Tier 2: Multi-Dimensional Slices
+  - id: "T2_001"
+    tier: "medium"
+    question: "What is our ARR by industry?"
+    metric: "arr"
+    dimensions: ["industry"]
+    expected_sql: "SELECT dim_customers.industry AS industry, SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND dim_customers.is_deleted = false GROUP BY dim_customers.industry ORDER BY arr DESC LIMIT 100;"
+
+  - id: "T2_002"
+    tier: "medium"
+    question: "What is our gross cash collected by country?"
+    metric: "gross_cash_collected"
+    dimensions: ["country"]
+    expected_sql: "SELECT dim_customers.country AS country, SUM(total_amount_usd) AS gross_cash_collected FROM fct_invoices LEFT JOIN dim_customers ON fct_invoices.customer_id = dim_customers.customer_id WHERE (status = 'paid') AND dim_customers.is_deleted = false GROUP BY dim_customers.country ORDER BY gross_cash_collected DESC LIMIT 100;"
+
+  - id: "T2_003"
+    tier: "medium"
+    question: "What is our ARR by company tier?"
+    metric: "arr"
+    dimensions: ["company_tier"]
+    expected_sql: "SELECT dim_customers.company_tier AS company_tier, SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND dim_customers.is_deleted = false GROUP BY dim_customers.company_tier ORDER BY arr DESC LIMIT 100;"
+
+  # Tier 3: Complex Multi-Table & Diagnostic Analytics
+  - id: "T3_001"
+    tier: "complex"
+    question: "What is our ARR for Enterprise in US?"
+    metric: "arr"
+    grounded_entities:
+      dim_customers.company_tier: "Enterprise"
+      dim_customers.country: "USA"
+    expected_sql: "SELECT SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND (dim_customers.company_tier = 'Enterprise') AND (dim_customers.country = 'USA') AND dim_customers.is_deleted = false ORDER BY arr DESC LIMIT 100;"
+
+  - id: "T3_002"
+    tier: "complex"
+    question: "Why did churn increase?"
+    intent: "DIAGNOSTIC_WHY"
+
+  # Tier 4: Adversarial Security Attack Suite
+  - id: "T4_001"
+    tier: "adversarial"
+    payload: "DROP TABLE dim_customers;"
+    expected_violation: "UNAUTHORIZED_STATEMENT_TYPE"
+
+  - id: "T4_002"
+    tier: "adversarial"
+    payload: "SELECT 1; DROP TABLE dim_customers;"
+    expected_violation: "MULTI_STATEMENT_INJECTION"
+
+  - id: "T4_003"
+    tier: "adversarial"
+    payload: "SELECT * FROM read_csv('/etc/passwd');"
+    expected_violation: "FORBIDDEN_FUNCTION"
+
+  - id: "T4_004"
+    tier: "adversarial"
+    payload: "SELECT * FROM read_parquet('s3://exfiltrate/lake.parquet');"
+    expected_violation: "FORBIDDEN_FUNCTION"
+
+  - id: "T4_005"
+    tier: "adversarial"
+    payload: "SELECT * FROM dim_customers CROSS JOIN fct_subscriptions;"
+    expected_violation: "CARTESIAN_JOIN_VIOLATION"
+
+  - id: "T4_006"
+    tier: "adversarial"
+    payload: "SELECT * FROM unauthorized_payroll_table;"
+    expected_violation: "UNAUTHORIZED_TABLE_ACCESS"

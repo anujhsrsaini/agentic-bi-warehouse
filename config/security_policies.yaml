@@ -1,0 +1,37 @@
+version: "1.0"
+max_limit: 1000
+enforce_limit: true
+allow_cartesian_joins: false
+
+whitelisted_tables:
+  - dim_customers
+  - dim_plans
+  - fct_subscriptions
+  - fct_invoices
+  - fct_mrr_movements
+
+allowed_statement_types:
+  - Select
+  - Union
+
+forbidden_functions:
+  - read_parquet
+  - read_csv
+  - read_json
+  - read_blob
+  - glob
+  - httpfs
+  - copy
+  - install
+  - load
+  - shell
+  - exec
+  - pg_sleep
+  - system$wait
+
+sensitive_columns:
+  - ssn
+  - credit_card
+  - password
+  - secret
+  - api_key

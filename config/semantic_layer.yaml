@@ -1,0 +1,194 @@
+version: "1.0"
+models:
+  - name: dim_customers
+    table: dim_customers
+    primary_key: customer_id
+    dimensions:
+      - name: customer_id
+        type: string
+        column: customer_id
+      - name: company_name
+        type: string
+        column: company_name
+      - name: industry
+        type: string
+        column: industry
+        synonyms: ["sector", "vertical", "market"]
+      - name: company_tier
+        type: string
+        column: company_tier
+        synonyms: ["tier", "segment", "size"]
+      - name: country
+        type: string
+        column: country
+        synonyms: ["region", "geography", "nation"]
+      - name: created_at
+        type: timestamp
+        column: created_at
+      - name: is_deleted
+        type: boolean
+        column: is_deleted
+
+  - name: dim_plans
+    table: dim_plans
+    primary_key: plan_id
+    dimensions:
+      - name: plan_id
+        type: string
+        column: plan_id
+      - name: plan_name
+        type: string
+        column: plan_name
+      - name: tier
+        type: string
+        column: tier
+      - name: billing_interval
+        type: string
+        column: billing_interval
+    measures:
+      - name: base_price
+        expr: base_price_usd
+        agg: sum
+
+  - name: fct_subscriptions
+    table: fct_subscriptions
+    primary_key: subscription_id
+    foreign_keys:
+      - fk: customer_id
+        references: dim_customers.customer_id
+        relationship: many_to_one
+      - fk: plan_id
+        references: dim_plans.plan_id
+        relationship: many_to_one
+    dimensions:
+      - name: status
+        type: string
+        column: status
+      - name: started_at
+        type: timestamp
+        column: started_at
+      - name: ended_at
+        type: timestamp
+        column: ended_at
+    measures:
+      - name: mrr_amount
+        expr: mrr_amount_usd
+        agg: sum
+      - name: active_subscription_count
+        expr: "CASE WHEN status = 'active' THEN 1 ELSE 0 END"
+        agg: sum
+
+  - name: fct_invoices
+    table: fct_invoices
+    primary_key: invoice_id
+    foreign_keys:
+      - fk: customer_id
+        references: dim_customers.customer_id
+        relationship: many_to_one
+      - fk: subscription_id
+        references: fct_subscriptions.subscription_id
+        relationship: many_to_one
+    dimensions:
+      - name: invoice_status
+        type: string
+        column: status
+      - name: invoice_date
+        type: timestamp
+        column: invoice_date
+      - name: paid_at
+        type: timestamp
+        column: paid_at
+    measures:
+      - name: invoiced_total
+        expr: total_amount_usd
+        agg: sum
+      - name: invoiced_tax
+        expr: tax_usd
+        agg: sum
+
+  - name: fct_mrr_movements
+    table: fct_mrr_movements
+    primary_key: movement_id
+    foreign_keys:
+      - fk: customer_id
+        references: dim_customers.customer_id
+        relationship: many_to_one
+    dimensions:
+      - name: movement_type
+        type: string
+        column: movement_type
+      - name: movement_date
+        type: timestamp
+        column: movement_date
+    measures:
+      - name: mrr_delta
+        expr: mrr_delta_usd
+        agg: sum
+      - name: prior_mrr
+        expr: prior_mrr_usd
+        agg: sum
+      - name: new_mrr
+        expr: new_mrr_usd
+        agg: sum
+
+metrics:
+  - name: mrr
+    label: "Monthly Recurring Revenue"
+    description: "Sum of normalized monthly recurring revenue from active subscriptions."
+    model: fct_subscriptions
+    calculation: "SUM(mrr_amount_usd)"
+    filter: "status = 'active'"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["monthly recurring revenue", "recurring revenue", "monthly run rate"]
+
+  - name: arr
+    label: "Annual Recurring Revenue"
+    description: "Annualized value of active recurring revenue (MRR * 12)."
+    model: fct_subscriptions
+    calculation: "SUM(mrr_amount_usd) * 12.0"
+    filter: "status = 'active'"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["annual recurring revenue", "annual run rate", "total arr"]
+
+  - name: active_customers
+    label: "Active Customers Count"
+    description: "Count of distinct customers holding an active subscription."
+    model: fct_subscriptions
+    calculation: "COUNT(DISTINCT customer_id)"
+    filter: "status = 'active'"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["active customers", "customer count", "active logos", "logos", "how many customers", "number of customers", "active customer count"]
+
+  - name: arpa
+    label: "Average Revenue Per Account"
+    description: "Total MRR divided by active customer count."
+    model: fct_subscriptions
+    calculation: "SUM(mrr_amount_usd) / NULLIF(COUNT(DISTINCT customer_id), 0)"
+    filter: "status = 'active'"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["arpa", "arpu", "average revenue per customer", "average ticket"]
+
+  - name: gross_cash_collected
+    label: "Gross Invoiced Cash Collected"
+    description: "Total amount collected from successfully paid invoices."
+    model: fct_invoices
+    calculation: "SUM(total_amount_usd)"
+    filter: "status = 'paid'"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["cash collected", "invoiced revenue", "paid revenue", "collections"]
+
+  - name: logo_churn_rate
+    label: "Logo Churn Rate"
+    description: "Percentage of subscriptions that were canceled."
+    model: fct_subscriptions
+    calculation: "SUM(CASE WHEN status = 'canceled' THEN 1.0 ELSE 0.0 END) / NULLIF(COUNT(*), 0) * 100.0"
+    dimensions: [industry, company_tier, country]
+    synonyms: ["churn rate", "logo churn", "customer churn", "attrition"]
+
+  - name: net_mrr_growth
+    label: "Net MRR Growth"
+    description: "Net sum of expansion, contraction, churn, and new revenue movements."
+    model: fct_mrr_movements
+    calculation: "SUM(mrr_delta_usd)"
+    dimensions: [movement_type]
+    synonyms: ["net mrr delta", "mrr movements", "mrr growth"]
