@@ -7,19 +7,19 @@ seed:
 	python3 scripts/seed_dataset.py
 
 test:
-	pytest tests/ -v --cov=src --cov-report=term-missing
+	PYTHONPATH=. pytest tests/ -v --cov=src --cov-report=term-missing
 
 demo:
-	python3 demo.py
+	PYTHONPATH=. python3 demo.py
 
 mcp:
-	python3 -m src.mcp.server
+	PYTHONPATH=. python3 -m src.mcp.server
 
 lint:
 	ruff check src/ tests/ eval/ scripts/
 
 eval:
-	python3 eval/benchmark_runner.py
+	PYTHONPATH=. python3 eval/benchmark_runner.py
 
 clean:
 	rm -rf .pytest_cache/ .cache/ build/ dist/ *.egg-info
