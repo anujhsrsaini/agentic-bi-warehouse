@@ -30,7 +30,7 @@ class ForeignKeyDefinition(BaseModel):
 class SemanticModel(BaseModel):
     name: str
     table: str
-    primary_key: str
+    primary_key: str | None = None  # Optional for composite-keyed or junction tables
     dimensions: list[DimensionDefinition] = Field(default_factory=list)
     measures: list[MeasureDefinition] = Field(default_factory=list)
     foreign_keys: list[ForeignKeyDefinition] = Field(default_factory=list)

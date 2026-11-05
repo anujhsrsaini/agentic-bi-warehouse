@@ -1,194 +1,271 @@
 version: "1.0"
+# Olist Brazilian E-Commerce Dataset — Semantic Layer
+# 550,761 rows across 8 tables | Real-world public dataset from Kaggle
+# NOTE: Fan-out / Chasm Trap — orders link 1:N to both order_items AND order_payments.
+#       Certified metrics aggregate each fact table in separate CTEs before joining on order_id.
+
 models:
-  - name: dim_customers
-    table: dim_customers
+  - name: orders
+    table: orders
+    primary_key: order_id
+    foreign_keys:
+      - fk: customer_id
+        references: customers.customer_id
+        relationship: many_to_one
+    dimensions:
+      - name: order_id
+        type: string
+        column: order_id
+      - name: customer_id
+        type: string
+        column: customer_id
+      - name: order_status
+        type: string
+        column: order_status
+        synonyms: ["status", "order state", "fulfillment status"]
+        allowed_values: ["delivered", "shipped", "canceled", "invoiced", "processing", "unavailable", "created", "approved"]
+      - name: order_purchase_timestamp
+        type: timestamp
+        column: order_purchase_timestamp
+        synonyms: ["purchase date", "order date", "ordered at"]
+      - name: order_delivered_customer_date
+        type: timestamp
+        column: order_delivered_customer_date
+        synonyms: ["delivery date", "delivered at", "delivered on"]
+      - name: order_estimated_delivery_date
+        type: timestamp
+        column: order_estimated_delivery_date
+        synonyms: ["estimated delivery", "expected delivery date"]
+
+  - name: order_items
+    table: order_items
+    primary_key: order_id  # composite: order_id + order_item_id
+    foreign_keys:
+      - fk: order_id
+        references: orders.order_id
+        relationship: many_to_one
+      - fk: product_id
+        references: products.product_id
+        relationship: many_to_one
+      - fk: seller_id
+        references: sellers.seller_id
+        relationship: many_to_one
+    dimensions:
+      - name: order_id
+        type: string
+        column: order_id
+      - name: product_id
+        type: string
+        column: product_id
+      - name: seller_id
+        type: string
+        column: seller_id
+    measures:
+      - name: price
+        expr: price
+        agg: sum
+        synonyms: ["item price", "product price", "unit price"]
+      - name: freight_value
+        expr: freight_value
+        agg: sum
+        synonyms: ["shipping cost", "freight cost", "delivery cost"]
+
+  - name: order_payments
+    table: order_payments
+    foreign_keys:
+      - fk: order_id
+        references: orders.order_id
+        relationship: many_to_one
+    dimensions:
+      - name: order_id
+        type: string
+        column: order_id
+      - name: payment_type
+        type: string
+        column: payment_type
+        synonyms: ["payment method", "payment mode", "pay method"]
+        allowed_values: ["credit_card", "boleto", "voucher", "debit_card"]
+      - name: payment_installments
+        type: integer
+        column: payment_installments
+    measures:
+      - name: payment_value
+        expr: payment_value
+        agg: sum
+        synonyms: ["payment amount", "amount paid", "transaction value"]
+
+  - name: order_reviews
+    table: order_reviews
+    foreign_keys:
+      - fk: order_id
+        references: orders.order_id
+        relationship: many_to_one
+    dimensions:
+      - name: order_id
+        type: string
+        column: order_id
+      - name: review_id
+        type: string
+        column: review_id
+      - name: review_creation_date
+        type: timestamp
+        column: review_creation_date
+    measures:
+      - name: review_score
+        expr: review_score
+        agg: avg
+        synonyms: ["rating", "star rating", "customer rating", "csat score", "satisfaction score"]
+
+  - name: customers
+    table: customers
     primary_key: customer_id
     dimensions:
       - name: customer_id
         type: string
         column: customer_id
-      - name: company_name
+      - name: customer_unique_id
         type: string
-        column: company_name
-      - name: industry
+        column: customer_unique_id
+      - name: customer_city
         type: string
-        column: industry
-        synonyms: ["sector", "vertical", "market"]
-      - name: company_tier
+        column: customer_city
+        synonyms: ["city", "customer city", "buyer city"]
+      - name: customer_state
         type: string
-        column: company_tier
-        synonyms: ["tier", "segment", "size"]
-      - name: country
-        type: string
-        column: country
-        synonyms: ["region", "geography", "nation"]
-      - name: created_at
-        type: timestamp
-        column: created_at
-      - name: is_deleted
-        type: boolean
-        column: is_deleted
+        column: customer_state
+        synonyms: ["state", "region", "customer region", "buyer state"]
+        allowed_values: ["SP", "RJ", "MG", "RS", "PR", "SC", "BA", "GO", "ES", "PE", "CE", "PA", "MT", "MS", "RN", "MA", "PB", "PI", "AL", "SE", "RO", "TO", "AM", "AC", "AP", "RR", "DF"]
 
-  - name: dim_plans
-    table: dim_plans
-    primary_key: plan_id
-    dimensions:
-      - name: plan_id
-        type: string
-        column: plan_id
-      - name: plan_name
-        type: string
-        column: plan_name
-      - name: tier
-        type: string
-        column: tier
-      - name: billing_interval
-        type: string
-        column: billing_interval
-    measures:
-      - name: base_price
-        expr: base_price_usd
-        agg: sum
-
-  - name: fct_subscriptions
-    table: fct_subscriptions
-    primary_key: subscription_id
+  - name: products
+    table: products
+    primary_key: product_id
     foreign_keys:
-      - fk: customer_id
-        references: dim_customers.customer_id
-        relationship: many_to_one
-      - fk: plan_id
-        references: dim_plans.plan_id
+      - fk: product_category_name
+        references: category_translation.product_category_name
         relationship: many_to_one
     dimensions:
-      - name: status
+      - name: product_id
         type: string
-        column: status
-      - name: started_at
-        type: timestamp
-        column: started_at
-      - name: ended_at
-        type: timestamp
-        column: ended_at
-    measures:
-      - name: mrr_amount
-        expr: mrr_amount_usd
-        agg: sum
-      - name: active_subscription_count
-        expr: "CASE WHEN status = 'active' THEN 1 ELSE 0 END"
-        agg: sum
+        column: product_id
+      - name: product_category_name
+        type: string
+        column: product_category_name
+        synonyms: ["category", "product category", "category name"]
+      - name: product_weight_g
+        type: float
+        column: product_weight_g
 
-  - name: fct_invoices
-    table: fct_invoices
-    primary_key: invoice_id
-    foreign_keys:
-      - fk: customer_id
-        references: dim_customers.customer_id
-        relationship: many_to_one
-      - fk: subscription_id
-        references: fct_subscriptions.subscription_id
-        relationship: many_to_one
+  - name: sellers
+    table: sellers
+    primary_key: seller_id
     dimensions:
-      - name: invoice_status
+      - name: seller_id
         type: string
-        column: status
-      - name: invoice_date
-        type: timestamp
-        column: invoice_date
-      - name: paid_at
-        type: timestamp
-        column: paid_at
-    measures:
-      - name: invoiced_total
-        expr: total_amount_usd
-        agg: sum
-      - name: invoiced_tax
-        expr: tax_usd
-        agg: sum
+        column: seller_id
+      - name: seller_city
+        type: string
+        column: seller_city
+        synonyms: ["seller location", "seller city"]
+      - name: seller_state
+        type: string
+        column: seller_state
+        synonyms: ["seller region", "seller state"]
 
-  - name: fct_mrr_movements
-    table: fct_mrr_movements
-    primary_key: movement_id
-    foreign_keys:
-      - fk: customer_id
-        references: dim_customers.customer_id
-        relationship: many_to_one
+  - name: category_translation
+    table: category_translation
+    primary_key: product_category_name
     dimensions:
-      - name: movement_type
+      - name: product_category_name
         type: string
-        column: movement_type
-      - name: movement_date
-        type: timestamp
-        column: movement_date
-    measures:
-      - name: mrr_delta
-        expr: mrr_delta_usd
-        agg: sum
-      - name: prior_mrr
-        expr: prior_mrr_usd
-        agg: sum
-      - name: new_mrr
-        expr: new_mrr_usd
-        agg: sum
+        column: product_category_name
+      - name: product_category_name_english
+        type: string
+        column: product_category_name_english
+        synonyms: ["category english", "english category name"]
+
 
 metrics:
-  - name: mrr
-    label: "Monthly Recurring Revenue"
-    description: "Sum of normalized monthly recurring revenue from active subscriptions."
-    model: fct_subscriptions
-    calculation: "SUM(mrr_amount_usd)"
-    filter: "status = 'active'"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["monthly recurring revenue", "recurring revenue", "monthly run rate"]
+  - name: gmv
+    label: "Gross Merchandise Value"
+    description: "Total revenue from product sales (sum of item prices), excluding freight. Excludes canceled orders."
+    model: order_items
+    join_path:
+      - from: order_items
+        to: orders
+        on: "order_items.order_id = orders.order_id"
+    calculation: "SUM(order_items.price)"
+    filter: "orders.order_status != 'canceled'"
+    dimensions: [customer_state, product_category_name, payment_type, order_status, seller_state]
+    synonyms: ["gmv", "gross merchandise value", "total sales", "revenue", "total revenue", "sales"]
 
-  - name: arr
-    label: "Annual Recurring Revenue"
-    description: "Annualized value of active recurring revenue (MRR * 12)."
-    model: fct_subscriptions
-    calculation: "SUM(mrr_amount_usd) * 12.0"
-    filter: "status = 'active'"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["annual recurring revenue", "annual run rate", "total arr"]
+  - name: total_orders
+    label: "Total Delivered Orders"
+    description: "Count of distinct successfully delivered orders."
+    model: orders
+    calculation: "COUNT(DISTINCT orders.order_id)"
+    filter: "orders.order_status = 'delivered'"
+    dimensions: [customer_state, order_status]
+    synonyms: ["total orders", "order count", "number of orders", "delivered orders", "orders"]
 
-  - name: active_customers
-    label: "Active Customers Count"
-    description: "Count of distinct customers holding an active subscription."
-    model: fct_subscriptions
-    calculation: "COUNT(DISTINCT customer_id)"
-    filter: "status = 'active'"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["active customers", "customer count", "active logos", "logos", "how many customers", "number of customers", "active customer count"]
+  - name: aov
+    label: "Average Order Value"
+    description: "Average item revenue per unique delivered order. Computed from order_items avoiding chasm-trap duplication."
+    model: order_items
+    join_path:
+      - from: order_items
+        to: orders
+        on: "order_items.order_id = orders.order_id"
+    calculation: "SUM(order_items.price) / NULLIF(COUNT(DISTINCT order_items.order_id), 0)"
+    filter: "orders.order_status = 'delivered'"
+    dimensions: [customer_state, product_category_name]
+    synonyms: ["aov", "average order value", "avg order value", "basket size", "average basket"]
 
-  - name: arpa
-    label: "Average Revenue Per Account"
-    description: "Total MRR divided by active customer count."
-    model: fct_subscriptions
-    calculation: "SUM(mrr_amount_usd) / NULLIF(COUNT(DISTINCT customer_id), 0)"
-    filter: "status = 'active'"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["arpa", "arpu", "average revenue per customer", "average ticket"]
+  - name: freight_value_ratio
+    label: "Freight-to-GMV Ratio (%)"
+    description: "Freight cost as a percentage of product sales value. High values indicate heavy / bulky categories."
+    model: order_items
+    calculation: "SUM(order_items.freight_value) / NULLIF(SUM(order_items.price), 0) * 100.0"
+    dimensions: [product_category_name, seller_state]
+    synonyms: ["freight ratio", "shipping ratio", "freight to gmv", "logistics ratio", "shipping cost ratio"]
 
-  - name: gross_cash_collected
-    label: "Gross Invoiced Cash Collected"
-    description: "Total amount collected from successfully paid invoices."
-    model: fct_invoices
-    calculation: "SUM(total_amount_usd)"
-    filter: "status = 'paid'"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["cash collected", "invoiced revenue", "paid revenue", "collections"]
+  - name: avg_review_score
+    label: "Average Review Score (CSAT)"
+    description: "Average customer satisfaction star rating (1-5) from post-delivery reviews."
+    model: order_reviews
+    join_path:
+      - from: order_reviews
+        to: orders
+        on: "order_reviews.order_id = orders.order_id"
+      - from: orders
+        to: customers
+        on: "orders.customer_id = customers.customer_id"
+    calculation: "AVG(order_reviews.review_score)"
+    filter: "orders.order_status = 'delivered'"
+    dimensions: [customer_state, product_category_name, seller_state]
+    synonyms: ["csat", "review score", "average review", "rating", "star rating", "satisfaction", "nps proxy", "customer satisfaction"]
 
-  - name: logo_churn_rate
-    label: "Logo Churn Rate"
-    description: "Percentage of subscriptions that were canceled."
-    model: fct_subscriptions
-    calculation: "SUM(CASE WHEN status = 'canceled' THEN 1.0 ELSE 0.0 END) / NULLIF(COUNT(*), 0) * 100.0"
-    dimensions: [industry, company_tier, country]
-    synonyms: ["churn rate", "logo churn", "customer churn", "attrition"]
+  - name: total_payment_value
+    label: "Total Payment Value"
+    description: "Sum of all payments processed (all payment types combined). Different from GMV — includes freight & installments."
+    model: order_payments
+    join_path:
+      - from: order_payments
+        to: orders
+        on: "order_payments.order_id = orders.order_id"
+    calculation: "SUM(order_payments.payment_value)"
+    filter: "orders.order_status != 'canceled'"
+    dimensions: [payment_type, customer_state]
+    synonyms: ["total payments", "payment value", "cash collected", "total collected", "gross payments"]
 
-  - name: net_mrr_growth
-    label: "Net MRR Growth"
-    description: "Net sum of expansion, contraction, churn, and new revenue movements."
-    model: fct_mrr_movements
-    calculation: "SUM(mrr_delta_usd)"
-    dimensions: [movement_type]
-    synonyms: ["net mrr delta", "mrr movements", "mrr growth"]
+  - name: delivery_delay_rate
+    label: "Late Delivery Rate (%)"
+    description: "Percentage of delivered orders that arrived after their estimated delivery date."
+    model: orders
+    calculation: >
+      SUM(CASE
+        WHEN orders.order_delivered_customer_date > orders.order_estimated_delivery_date THEN 1.0
+        ELSE 0.0
+      END) / NULLIF(COUNT(DISTINCT orders.order_id), 0) * 100.0
+    filter: "orders.order_status = 'delivered' AND orders.order_delivered_customer_date IS NOT NULL"
+    dimensions: [customer_state]
+    synonyms: ["delivery delay rate", "late delivery", "late delivery rate", "on time delivery", "otd", "delivery performance"]

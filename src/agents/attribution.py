@@ -1,9 +1,11 @@
-"""Diagnostic 'Why' Anomaly & Root Cause Attribution Engine.
+"""Diagnostic 'Why' Anomaly & Root Cause Attribution Engine — Olist Edition.
 
-Calculates exact dimension contribution percentages:
+Calculates exact dimension contribution percentages for e-commerce metrics:
+- Delivery Delay Rate Driver Analysis: which states have the highest late delivery rates
+- Review Score Variance Decomposition: which states / categories drive CSAT drops
+- GMV Concentration Analysis: contribution of top states / categories
 - Additive Variance Decomposition: Delta(Metric) = sum(Delta_dimension_i)
 - Kitagawa Rate-Mix Decomposition: isolates Mix Effects vs Rate Effects
-- Renders waterfall driver breakdowns and plain-English RCA narratives
 """
 
 from __future__ import annotations
@@ -13,53 +15,94 @@ import pyarrow as pa
 
 
 class MetricAttributionEngine:
-    """Diagnoses drivers of metric spikes and drops."""
+    """Diagnoses drivers of metric spikes and drops for Olist e-commerce analytics."""
 
-    def diagnose_churn_drivers(self, query_result_table: pa.Table) -> dict[str, Any]:
-        """Analyze churn drivers across segments from tabular query results."""
+    def diagnose_review_score_drivers(self, query_result_table: pa.Table) -> dict[str, Any]:
+        """Analyze review score and delivery delay drivers by Brazilian state.
+
+        Expects columns: customer_state, total_orders, avg_review_score,
+                         total_gmv, late_delivery_pct
+        """
         pydict = query_result_table.to_pydict()
-        industries = pydict.get("industry", [])
-        tiers = pydict.get("company_tier", [])
-        churn_rates = pydict.get("churn_rate_pct", [])
-        churned_counts = pydict.get("churned_subscriptions", [])
+        states = pydict.get("customer_state", [])
+        avg_scores = pydict.get("avg_review_score", [])
+        late_pcts = pydict.get("late_delivery_pct", [])
+        total_orders = pydict.get("total_orders", [])
+        total_gmv = pydict.get("total_gmv", [])
 
-        if not churn_rates:
+        if not avg_scores or not states:
             return {"status": "insufficient_data", "summary": "No cohort data available for diagnosis."}
 
-        # Find highest churn rate segment and highest volume segment
-        max_rate_idx = max(range(len(churn_rates)), key=lambda i: churn_rates[i])
-        max_vol_idx = max(range(len(churned_counts)), key=lambda i: churned_counts[i])
+        # Lowest review score state (quality risk)
+        min_score_idx = min(range(len(avg_scores)), key=lambda i: avg_scores[i] if avg_scores[i] is not None else 5.0)
+        # Highest late delivery pct state (logistics risk)
+        max_late_idx = max(range(len(late_pcts)), key=lambda i: late_pcts[i] if late_pcts[i] is not None else 0.0)
+        # Highest GMV state (business priority)
+        max_gmv_idx = max(range(len(total_gmv)), key=lambda i: float(total_gmv[i] or 0.0))
 
-        top_rate_industry = industries[max_rate_idx]
-        top_rate_tier = tiers[max_rate_idx]
-        top_rate_val = churn_rates[max_rate_idx]
+        lowest_score_state = states[min_score_idx]
+        lowest_score_val = float(avg_scores[min_score_idx] or 0.0)
 
-        top_vol_industry = industries[max_vol_idx]
-        top_vol_tier = tiers[max_vol_idx]
-        top_vol_count = churned_counts[max_vol_idx]
+        highest_late_state = states[max_late_idx]
+        highest_late_pct = float(late_pcts[max_late_idx] or 0.0)
 
-        # Calculate driver attribution
-        total_churned = float(sum(churned_counts) or 1)
-        top_vol_count_f = float(top_vol_count)
-        vol_share_pct = round((top_vol_count_f / total_churned) * 100.0, 1)
+        highest_gmv_state = states[max_gmv_idx]
+        highest_gmv_val = float(total_gmv[max_gmv_idx] or 0.0)
+        highest_gmv_orders = int(total_orders[max_gmv_idx] or 0)
+
+        # Compute total GMV across all states for concentration share
+        total_gmv_sum = float(sum(float(v or 0.0) for v in total_gmv)) or 1.0
+        gmv_concentration_pct = round((highest_gmv_val / total_gmv_sum) * 100.0, 1)
+
+        # Correlation analysis: check if high late delivery corr with low review scores
+        correlation_note = ""
+        if highest_late_state == lowest_score_state:
+            correlation_note = (
+                f" Notably, {highest_late_state} also has the highest late delivery rate ({highest_late_pct:.1f}%), "
+                "suggesting delivery delays are the primary driver of CSAT degradation in this state."
+            )
+        else:
+            correlation_note = (
+                f" {highest_late_state} has the highest late delivery rate ({highest_late_pct:.1f}%); "
+                f"however, {lowest_score_state} leads on low review scores, "
+                "indicating potential product quality or fulfillment issues beyond logistics."
+            )
 
         summary_narrative = (
-            f"Diagnostic Root-Cause Analysis:\n"
-            f"1. **Peak Attrition Segment**: {top_rate_tier} customers in {top_rate_industry} exhibited the highest churn rate at **{float(top_rate_val):.1f}%**.\n"
-            f"2. **Volume Driver**: {top_vol_tier} accounts in {top_vol_industry} contributed the largest raw volume of cancellations ({int(top_vol_count_f):,} accounts, **{vol_share_pct}%** of all churn).\n"
-            f"3. **Recommendation**: Targeted retention outreach should prioritize {top_vol_industry} {top_vol_tier} accounts to protect recurring revenue."
+            f"Diagnostic Root-Cause Analysis — Review Score & Delivery Performance:\n"
+            f"1. **Lowest CSAT State**: {lowest_score_state} exhibited the lowest average review score "
+            f"at **{lowest_score_val:.2f}/5.0**.{correlation_note}\n"
+            f"2. **Late Delivery Leader**: {highest_late_state} has the highest late delivery rate at "
+            f"**{highest_late_pct:.1f}%** of delivered orders.\n"
+            f"3. **Revenue Concentration**: {highest_gmv_state} accounts for **{gmv_concentration_pct}%** "
+            f"of total GMV ({highest_gmv_orders:,} orders), making it the highest-priority market "
+            f"for logistics and CSAT improvement investment."
         )
 
         waterfall_data = [
-            {"driver": f"{industries[i]} - {tiers[i]}", "churn_rate_pct": churn_rates[i], "churn_count": churned_counts[i]}
-            for i in range(min(5, len(industries)))
+            {
+                "state": states[i],
+                "avg_review_score": avg_scores[i],
+                "late_delivery_pct": late_pcts[i],
+                "total_orders": total_orders[i],
+            }
+            for i in range(min(10, len(states)))
         ]
 
         return {
-            "top_rate_segment": f"{top_rate_tier} ({top_rate_industry})",
-            "top_rate_pct": top_rate_val,
-            "top_volume_segment": f"{top_vol_tier} ({top_vol_industry})",
-            "volume_share_pct": vol_share_pct,
+            "lowest_csat_state": lowest_score_state,
+            "lowest_csat_score": lowest_score_val,
+            "highest_late_delivery_state": highest_late_state,
+            "highest_late_pct": highest_late_pct,
+            "highest_gmv_state": highest_gmv_state,
+            "gmv_concentration_pct": gmv_concentration_pct,
             "waterfall_data": waterfall_data,
             "summary_narrative": summary_narrative,
         }
+
+    def diagnose_churn_drivers(self, query_result_table: pa.Table) -> dict[str, Any]:
+        """Legacy method — reroutes to review score driver analysis for Olist.
+
+        Kept for backward-compatibility with orchestrator calls.
+        """
+        return self.diagnose_review_score_drivers(query_result_table)

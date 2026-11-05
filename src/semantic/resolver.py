@@ -62,17 +62,25 @@ class SemanticQueryResolver:
 
             # If dimension is from another table, resolve join
             if tbl_name != base_model.table:
-                join_clause = self._resolve_join(base_model, tbl_name)
-                if join_clause and join_clause not in joins_needed:
-                    joins_needed.append(join_clause)
+                join_result = self._resolve_join(base_model, tbl_name)
+                if isinstance(join_result, list):
+                    for jc in join_result:
+                        if jc not in joins_needed:
+                            joins_needed.append(jc)
+                elif join_result and join_result not in joins_needed:
+                    joins_needed.append(join_result)
 
         # Also check if any filter references an external table
         for f in filters or []:
             for model in self.config.models:
                 if model.table != base_model.table and f"{model.table}." in f:
-                    join_clause = self._resolve_join(base_model, model.table)
-                    if join_clause and join_clause not in joins_needed:
-                        joins_needed.append(join_clause)
+                    join_result = self._resolve_join(base_model, model.table)
+                    if isinstance(join_result, list):
+                        for jc in join_result:
+                            if jc not in joins_needed:
+                                joins_needed.append(jc)
+                    elif join_result and join_result not in joins_needed:
+                        joins_needed.append(join_result)
 
         # Assemble WHERE clauses
         where_clauses: list[str] = []
@@ -123,20 +131,60 @@ class SemanticQueryResolver:
                     return (model.table, dim.column)
         return None
 
-    def _resolve_join(self, base_model: SemanticModel, target_table: str) -> tuple[str, str, str]:
-        """Find foreign key join between base model and target table."""
-        # 1. Direct FK on base model
+    def _resolve_join(self, base_model: SemanticModel, target_table: str) -> tuple[str, str, str] | list[tuple[str, str, str]]:
+        """Find foreign key join between base model and target table.
+
+        Returns a single join tuple or a list of join tuples for multi-hop paths.
+        Each tuple: (target_table, on_condition, join_type)
+        """
+        # 1. Direct FK on base model → target
         for fk in base_model.foreign_keys:
             ref_tbl, ref_col = fk.references.split(".")
             if ref_tbl == target_table:
-                return (target_table, f"{base_model.table}.{fk.fk} = {target_table}.{ref_col}", "LEFT")
+                return [(target_table, f"{base_model.table}.{fk.fk} = {target_table}.{ref_col}", "LEFT")]
 
-        # 2. Reverse FK on target table
+        # 2. Reverse FK on target → base
         target_model = self.config.get_model(target_table)
         if target_model:
             for fk in target_model.foreign_keys:
                 ref_tbl, ref_col = fk.references.split(".")
                 if ref_tbl == base_model.table:
-                    return (target_table, f"{target_table}.{fk.fk} = {base_model.table}.{ref_col}", "LEFT")
+                    return [(target_table, f"{target_model.table}.{fk.fk} = {base_model.table}.{ref_col}", "LEFT")]
+
+        # 3. Two-hop BFS: base → intermediate → target
+        for model in self.config.models:
+            if model.name == base_model.name or model.name == target_table:
+                continue
+            # Check base → intermediate
+            hop1 = None
+            for fk in base_model.foreign_keys:
+                ref_tbl, ref_col = fk.references.split(".")
+                if ref_tbl == model.table:
+                    hop1 = (model.table, f"{base_model.table}.{fk.fk} = {model.table}.{ref_col}", "LEFT")
+                    break
+            if not hop1:
+                for fk in model.foreign_keys:
+                    ref_tbl, ref_col = fk.references.split(".")
+                    if ref_tbl == base_model.table:
+                        hop1 = (model.table, f"{model.table}.{fk.fk} = {base_model.table}.{ref_col}", "LEFT")
+                        break
+            if not hop1:
+                continue
+
+            # Check intermediate → target
+            hop2 = None
+            for fk in model.foreign_keys:
+                ref_tbl, ref_col = fk.references.split(".")
+                if ref_tbl == target_table:
+                    hop2 = (target_table, f"{model.table}.{fk.fk} = {target_table}.{ref_col}", "LEFT")
+                    break
+            if not hop2 and target_model:
+                for fk in target_model.foreign_keys:
+                    ref_tbl, ref_col = fk.references.split(".")
+                    if ref_tbl == model.table:
+                        hop2 = (target_table, f"{target_model.table}.{fk.fk} = {model.table}.{ref_col}", "LEFT")
+                        break
+            if hop1 and hop2:
+                return [hop1, hop2]
 
         raise SemanticResolutionError(f"No join path resolved between '{base_model.table}' and '{target_table}'.")

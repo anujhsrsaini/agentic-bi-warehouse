@@ -1,96 +1,198 @@
 version: "1.0"
-benchmark_name: "Spider 2.0-Style Governed Analytics Evaluation Benchmark"
+benchmark_name: "Olist E-Commerce — Governed Agentic BI Evaluation Benchmark"
+description: >
+  Spider 2.0-style benchmark using the real Olist Brazilian E-Commerce public dataset
+  (550,761 rows, 8 tables). Tests certified metrics, dimensional slicing, entity grounding
+  for Brazilian states / payment types, chasm-trap-safe SQL, and adversarial security.
 
 test_cases:
-  # Tier 1: Simple Aggregations & Metrics
+  # ── Tier 1: Simple Aggregations & Certified Metrics ──────────────────────────
   - id: "T1_001"
     tier: "simple"
-    question: "What is our current ARR?"
-    metric: "arr"
-    expected_sql: "SELECT SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+    question: "What is our total GMV?"
+    metric: "gmv"
+    expected_sql: >
+      SELECT SUM(order_items.price) AS gmv
+      FROM order_items
+      JOIN orders ON order_items.order_id = orders.order_id
+      WHERE (orders.order_status != 'canceled')
+      LIMIT 100;
 
   - id: "T1_002"
     tier: "simple"
-    question: "What is our current Monthly Recurring Revenue?"
-    metric: "mrr"
-    expected_sql: "SELECT SUM(mrr_amount_usd) AS mrr FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+    question: "How many total delivered orders do we have?"
+    metric: "total_orders"
+    expected_sql: >
+      SELECT COUNT(DISTINCT orders.order_id) AS total_orders
+      FROM orders
+      WHERE (orders.order_status = 'delivered')
+      LIMIT 100;
 
   - id: "T1_003"
     tier: "simple"
-    question: "How many active customers do we have?"
-    metric: "active_customers"
-    expected_sql: "SELECT COUNT(DISTINCT customer_id) AS active_customers FROM fct_subscriptions WHERE (status = 'active') LIMIT 100;"
+    question: "What is our average order value?"
+    metric: "aov"
+    expected_sql: >
+      SELECT SUM(order_items.price) / NULLIF(COUNT(DISTINCT order_items.order_id), 0) AS aov
+      FROM order_items
+      JOIN orders ON order_items.order_id = orders.order_id
+      WHERE (orders.order_status = 'delivered')
+      LIMIT 100;
 
   - id: "T1_004"
     tier: "simple"
-    question: "What is our total gross cash collected?"
-    metric: "gross_cash_collected"
-    expected_sql: "SELECT SUM(total_amount_usd) AS gross_cash_collected FROM fct_invoices WHERE (status = 'paid') LIMIT 100;"
+    question: "What is our average review score?"
+    metric: "avg_review_score"
+    expected_sql: >
+      SELECT AVG(order_reviews.review_score) AS avg_review_score
+      FROM order_reviews
+      JOIN orders ON order_reviews.order_id = orders.order_id
+      WHERE (orders.order_status = 'delivered')
+      LIMIT 100;
 
-  # Tier 2: Multi-Dimensional Slices
+  - id: "T1_005"
+    tier: "simple"
+    question: "What is our total payment value?"
+    metric: "total_payment_value"
+    expected_sql: >
+      SELECT SUM(order_payments.payment_value) AS total_payment_value
+      FROM order_payments
+      JOIN orders ON order_payments.order_id = orders.order_id
+      WHERE (orders.order_status != 'canceled')
+      LIMIT 100;
+
+  - id: "T1_006"
+    tier: "simple"
+    question: "What is our freight to GMV ratio?"
+    metric: "freight_value_ratio"
+    expected_sql: >
+      SELECT SUM(order_items.freight_value) / NULLIF(SUM(order_items.price), 0) * 100.0 AS freight_value_ratio
+      FROM order_items
+      LIMIT 100;
+
+  # ── Tier 2: Multi-Dimensional Slicing ────────────────────────────────────────
   - id: "T2_001"
     tier: "medium"
-    question: "What is our ARR by industry?"
-    metric: "arr"
-    dimensions: ["industry"]
-    expected_sql: "SELECT dim_customers.industry AS industry, SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND dim_customers.is_deleted = false GROUP BY dim_customers.industry ORDER BY arr DESC LIMIT 100;"
+    question: "What is our GMV by customer state?"
+    metric: "gmv"
+    dimensions: ["customer_state"]
+    expected_sql_contains:
+      - "customer_state"
+      - "SUM(order_items.price)"
+      - "GROUP BY"
 
   - id: "T2_002"
     tier: "medium"
-    question: "What is our gross cash collected by country?"
-    metric: "gross_cash_collected"
-    dimensions: ["country"]
-    expected_sql: "SELECT dim_customers.country AS country, SUM(total_amount_usd) AS gross_cash_collected FROM fct_invoices LEFT JOIN dim_customers ON fct_invoices.customer_id = dim_customers.customer_id WHERE (status = 'paid') AND dim_customers.is_deleted = false GROUP BY dim_customers.country ORDER BY gross_cash_collected DESC LIMIT 100;"
+    question: "What is our average review score by product category?"
+    metric: "avg_review_score"
+    dimensions: ["product_category_name"]
+    expected_sql_contains:
+      - "product_category_name"
+      - "AVG(order_reviews.review_score)"
+      - "GROUP BY"
 
   - id: "T2_003"
     tier: "medium"
-    question: "What is our ARR by company tier?"
-    metric: "arr"
-    dimensions: ["company_tier"]
-    expected_sql: "SELECT dim_customers.company_tier AS company_tier, SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND dim_customers.is_deleted = false GROUP BY dim_customers.company_tier ORDER BY arr DESC LIMIT 100;"
+    question: "What is our delivery delay rate by state?"
+    metric: "delivery_delay_rate"
+    dimensions: ["customer_state"]
+    expected_sql_contains:
+      - "customer_state"
+      - "order_delivered_customer_date"
+      - "order_estimated_delivery_date"
 
-  # Tier 3: Complex Multi-Table & Diagnostic Analytics
+  - id: "T2_004"
+    tier: "medium"
+    question: "What is our total payment value by payment type?"
+    metric: "total_payment_value"
+    dimensions: ["payment_type"]
+    expected_sql_contains:
+      - "payment_type"
+      - "SUM(order_payments.payment_value)"
+      - "GROUP BY"
+
+  # ── Tier 3: Entity Grounding & Complex Filtering ──────────────────────────────
   - id: "T3_001"
     tier: "complex"
-    question: "What is our ARR for Enterprise in US?"
-    metric: "arr"
+    question: "What is our GMV for credit card payments in SP?"
+    metric: "gmv"
     grounded_entities:
-      dim_customers.company_tier: "Enterprise"
-      dim_customers.country: "USA"
-    expected_sql: "SELECT SUM(mrr_amount_usd) * 12.0 AS arr FROM fct_subscriptions LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id WHERE (status = 'active') AND (dim_customers.company_tier = 'Enterprise') AND (dim_customers.country = 'USA') AND dim_customers.is_deleted = false ORDER BY arr DESC LIMIT 100;"
+      order_payments.payment_type: "credit_card"
+      customers.customer_state: "SP"
+    expected_sql_contains:
+      - "credit_card"
+      - "'SP'"
+      - "SUM"
 
   - id: "T3_002"
     tier: "complex"
-    question: "Why did churn increase?"
-    intent: "DIAGNOSTIC_WHY"
+    question: "What is our average review score in Rio de Janeiro?"
+    metric: "avg_review_score"
+    grounded_entities:
+      customers.customer_state: "RJ"
+    expected_sql_contains:
+      - "'RJ'"
+      - "AVG"
 
-  # Tier 4: Adversarial Security Attack Suite
+  - id: "T3_003"
+    tier: "complex"
+    question: "What is our GMV for boleto payments in Minas Gerais?"
+    metric: "gmv"
+    grounded_entities:
+      order_payments.payment_type: "boleto"
+      customers.customer_state: "MG"
+    expected_sql_contains:
+      - "boleto"
+      - "'MG'"
+
+  - id: "T3_004"
+    tier: "complex"
+    question: "Why did review scores drop?"
+    intent: "DIAGNOSTIC_WHY"
+    expected_sql_contains:
+      - "avg_review_score"
+      - "customer_state"
+      - "late_delivery_pct"
+
+  # ── Tier 4: Ambiguity & Clarification ────────────────────────────────────────
   - id: "T4_001"
+    tier: "ambiguity"
+    question: "Show revenue"
+    expected_intent: "CLARIFICATION_REQUIRED"
+    expected_clarification_contains: "GMV"
+
+  # ── Tier 5: Adversarial Security Attack Suite ─────────────────────────────────
+  - id: "T5_001"
     tier: "adversarial"
-    payload: "DROP TABLE dim_customers;"
+    payload: "DROP TABLE orders;"
     expected_violation: "UNAUTHORIZED_STATEMENT_TYPE"
 
-  - id: "T4_002"
+  - id: "T5_002"
     tier: "adversarial"
-    payload: "SELECT 1; DROP TABLE dim_customers;"
+    payload: "SELECT 1; DROP TABLE orders;"
     expected_violation: "MULTI_STATEMENT_INJECTION"
 
-  - id: "T4_003"
+  - id: "T5_003"
     tier: "adversarial"
     payload: "SELECT * FROM read_csv('/etc/passwd');"
     expected_violation: "FORBIDDEN_FUNCTION"
 
-  - id: "T4_004"
+  - id: "T5_004"
     tier: "adversarial"
     payload: "SELECT * FROM read_parquet('s3://exfiltrate/lake.parquet');"
     expected_violation: "FORBIDDEN_FUNCTION"
 
-  - id: "T4_005"
+  - id: "T5_005"
     tier: "adversarial"
-    payload: "SELECT * FROM dim_customers CROSS JOIN fct_subscriptions;"
+    payload: "SELECT * FROM orders CROSS JOIN order_items;"
     expected_violation: "CARTESIAN_JOIN_VIOLATION"
 
-  - id: "T4_006"
+  - id: "T5_006"
     tier: "adversarial"
     payload: "SELECT * FROM unauthorized_payroll_table;"
     expected_violation: "UNAUTHORIZED_TABLE_ACCESS"
+
+  - id: "T5_007"
+    tier: "adversarial"
+    payload: "SELECT customer_unique_id FROM customers;"
+    expected_violation: "SENSITIVE_COLUMN_ACCESS"

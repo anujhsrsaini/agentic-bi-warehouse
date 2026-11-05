@@ -1,4 +1,4 @@
-"""Triage & Intent Router Agent.
+"""Triage & Intent Router Agent — Olist Brazilian E-Commerce Edition.
 
 Classifies question intent, scores confidence, and proactively prompts
 for disambiguation when user intent is ambiguous without guessing blindly.
@@ -21,26 +21,33 @@ class IntentRouterAgent:
         """Analyze question and update state with intent and parameters."""
         q = state.question.strip().lower()
 
-        # 1. Ambiguity Check (e.g. "show revenue", "what is our revenue")
-        if q in ["show revenue", "revenue", "what is our revenue", "show me revenue", "give me revenue"]:
+        # 1. Ambiguity Check — "revenue" / "show revenue" is ambiguous in Olist context
+        #    (GMV vs total_payment_value vs invoiced items)
+        _revenue_triggers = {
+            "show revenue", "revenue", "what is our revenue", "show me revenue",
+            "give me revenue", "total revenue", "what is revenue",
+        }
+        if q in _revenue_triggers:
             state.intent = UserIntent.CLARIFICATION_REQUIRED
             state.confidence = 0.50
             state.clarification_prompt = (
-                "The term 'revenue' has multiple certified accounting definitions at this company. "
-                "Which definition would you like to see?"
+                "The term 'revenue' has multiple interpretations for the Olist e-commerce dataset. "
+                "GMV (item sales), Total Payments, or a state breakdown — which would you like?"
             )
             state.clarification_options = [
-                "1. Annual Recurring Revenue (ARR): Annualized value of active subscriptions (MRR * 12)",
-                "2. Monthly Recurring Revenue (MRR): Current monthly contracted subscription run-rate",
-                "3. Invoiced Cash Collected: Total cash collected from paid customer invoices",
+                "1. GMV (Gross Merchandise Value): Sum of product item prices, excluding freight",
+                "2. Total Payment Value: All payments received (item price + freight + installments)",
+                "3. GMV by State: Break down product revenue by Brazilian customer state",
             ]
             return state
 
-        # 2. Diagnostic "Why" Analytics Check
-        if q.startswith("why ") or "reason for" in q or "explain the drop" in q or "explain the spike" in q or "root cause" in q:
+        # 2. Diagnostic "Why" Analytics — Root-cause attribution
+        _diag_triggers = ["why ", "reason for", "explain the drop", "explain the spike",
+                          "root cause", "what caused", "what's driving", "diagnose"]
+        if any(t in q for t in _diag_triggers):
             state.intent = UserIntent.DIAGNOSTIC_WHY
             state.confidence = 0.95
-            state.metric_name = self._extract_metric_name(q) or "logo_churn_rate"
+            state.metric_name = self._extract_metric_name(q) or "avg_review_score"
             return state
 
         # 3. Certified Metric Check
@@ -59,7 +66,6 @@ class IntentRouterAgent:
 
     def _extract_metric_name(self, text: str) -> str | None:
         """Extract certified metric name from text or synonyms."""
-        # Direct check on registered metrics and synonyms
         for metric in self.semantic_config.metrics:
             if metric.name in text:
                 return metric.name
@@ -69,14 +75,16 @@ class IntentRouterAgent:
         return None
 
     def _extract_dimensions(self, text: str) -> list[str]:
-        """Extract requested dimensions (industry, tier, country, etc.)."""
+        """Extract requested grouping dimensions from the question text."""
         dims = []
-        if any(w in text for w in ["industry", "vertical", "sector"]):
-            dims.append("industry")
-        if any(w in text for w in ["tier", "segment", "company tier"]):
-            dims.append("company_tier")
-        if any(w in text for w in ["country", "region", "geography"]):
-            dims.append("country")
-        if any(w in text for w in ["movement", "movement type"]):
-            dims.append("movement_type")
+        if any(w in text for w in ["state", "region", "sp", "rj", "mg", "rs", "pr"]):
+            dims.append("customer_state")
+        if any(w in text for w in ["category", "product category", "product type"]):
+            dims.append("product_category_name")
+        if any(w in text for w in ["payment", "payment type", "payment method"]):
+            dims.append("payment_type")
+        if any(w in text for w in ["seller", "seller state", "seller region"]):
+            dims.append("seller_state")
+        if any(w in text for w in ["status", "order status"]):
+            dims.append("order_status")
         return dims

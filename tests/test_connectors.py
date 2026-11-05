@@ -1,4 +1,4 @@
-"""Tests for Unified Warehouse Abstraction Layer (UWAL) and Connectors."""
+"""Tests for Unified Warehouse Abstraction Layer (UWAL) and Connectors — Olist Edition."""
 
 import pytest
 from src.engine.connectors.duckdb_connector import DuckDBConnector
@@ -12,21 +12,35 @@ from src.engine.cache import ParquetQueryCache
 def test_duckdb_connection_and_introspection(duckdb_connector):
     assert duckdb_connector.test_connection() is True
     catalog = duckdb_connector.introspect_schema()
-    assert "dim_customers" in catalog.tables
-    assert "fct_subscriptions" in catalog.tables
-    assert catalog.tables["dim_customers"].row_count == 10000
+    # Verify all 8 Olist tables are discovered
+    assert "orders" in catalog.tables
+    assert "order_items" in catalog.tables
+    assert "customers" in catalog.tables
+    assert "products" in catalog.tables
+    # Verify row counts
+    assert catalog.tables["orders"].row_count == 99441
+    assert catalog.tables["customers"].row_count == 99441
 
 
 def test_duckdb_query_execution_and_arrow(duckdb_connector):
-    res = duckdb_connector.execute_query("SELECT COUNT(*) AS total FROM dim_customers;")
-    assert res.execution_time_ms < 50.0
+    res = duckdb_connector.execute_query("SELECT COUNT(*) AS total FROM orders;")
+    assert res.execution_time_ms < 100.0
     assert res.rows_returned == 1
-    assert res.to_pylist() == [{"total": 10000}]
+    assert res.to_pylist()[0]["total"] == 99441
     assert res.dialect == "duckdb"
 
 
+def test_duckdb_query_delivered_orders(duckdb_connector):
+    res = duckdb_connector.execute_query(
+        "SELECT COUNT(*) AS delivered_count FROM orders WHERE order_status = 'delivered';"
+    )
+    assert res.rows_returned == 1
+    delivered_count = res.to_pylist()[0]["delivered_count"]
+    assert delivered_count > 90000  # 96k+ delivered orders in Olist
+
+
 def test_duckdb_explain_plan(duckdb_connector):
-    plan = duckdb_connector.explain("SELECT * FROM dim_customers;")
+    plan = duckdb_connector.explain("SELECT * FROM orders;")
     assert "PLAN" in plan.upper() or "SCAN" in plan.upper()
 
 
@@ -44,7 +58,7 @@ def test_warehouse_connector_dialects():
 
 def test_parquet_query_cache(duckdb_connector, tmp_path):
     cache = ParquetQueryCache(cache_dir=tmp_path)
-    sql = "SELECT customer_id, industry FROM dim_customers LIMIT 5;"
+    sql = "SELECT customer_id, customer_state FROM customers LIMIT 5;"
     res = duckdb_connector.execute_query(sql)
 
     # First get should miss

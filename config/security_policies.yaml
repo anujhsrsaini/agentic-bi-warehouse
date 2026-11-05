@@ -3,12 +3,16 @@ max_limit: 1000
 enforce_limit: true
 allow_cartesian_joins: false
 
+# Olist Brazilian E-Commerce Dataset — 8 whitelisted tables
 whitelisted_tables:
-  - dim_customers
-  - dim_plans
-  - fct_subscriptions
-  - fct_invoices
-  - fct_mrr_movements
+  - orders
+  - order_items
+  - order_payments
+  - order_reviews
+  - customers
+  - products
+  - sellers
+  - category_translation
 
 allowed_statement_types:
   - Select
@@ -35,3 +39,4 @@ sensitive_columns:
   - password
   - secret
   - api_key
+  - customer_unique_id

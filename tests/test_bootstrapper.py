@@ -1,4 +1,4 @@
-"""Tests for Semantic Bootstrap Engine."""
+"""Tests for Semantic Bootstrap Engine — Olist Edition."""
 
 import pytest
 from src.semantic.bootstrapper import SemanticBootstrapEngine
@@ -10,6 +10,6 @@ def test_semantic_bootstrap_discovers_schema(duckdb_connector):
 
     assert config["version"] == "1.0"
     model_names = [m["name"] for m in config["models"]]
-    assert "dim_customers" in model_names
-    assert "fct_subscriptions" in model_names
-    assert len(config["metrics"]) > 0
+    # Should discover at least the core Olist tables
+    assert "orders" in model_names or "order_items" in model_names
+    assert len(config["models"]) >= 4

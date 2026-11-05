@@ -1,8 +1,14 @@
-"""SQL Generator & Query Planner Agent.
+"""SQL Generator & Query Planner Agent — Olist Brazilian E-Commerce Edition.
 
 Dual-Track SQL Generation:
 - Track 1 (Certified Metric): Compiles deterministic SQL from YAML semantic model.
 - Track 2 (Exploratory SQL): Synthesizes dialect-aware analytical SQL with schema linking.
+
+IMPORTANT: Olist has a Fan-out/Chasm Trap.
+  orders → order_items (1:N)
+  orders → order_payments (1:N)
+  Direct join of both facts on orders WILL duplicate rows.
+  Diagnostic SQL must aggregate each fact in its own CTE before joining.
 """
 
 from __future__ import annotations
@@ -44,64 +50,138 @@ class SQLGeneratorAgent:
             return state
 
         elif state.intent == UserIntent.DIAGNOSTIC_WHY:
-            # Generate comparative breakdown SQL for attribution
-            state.raw_sql = f"""
-                SELECT
-                    dim_customers.industry,
-                    dim_customers.company_tier,
-                    COUNT(*) as total_subscriptions,
-                    SUM(CASE WHEN fct_subscriptions.status = 'canceled' THEN 1 ELSE 0 END) as churned_subscriptions,
-                    ROUND(SUM(CASE WHEN fct_subscriptions.status = 'canceled' THEN 1.0 ELSE 0.0 END) / COUNT(*) * 100.0, 2) as churn_rate_pct
-                FROM fct_subscriptions
-                LEFT JOIN dim_customers ON fct_subscriptions.customer_id = dim_customers.customer_id
-                WHERE dim_customers.is_deleted = false
-                GROUP BY dim_customers.industry, dim_customers.company_tier
-                ORDER BY churn_rate_pct DESC
-                LIMIT 50;
+            # Diagnostic Root-Cause: multi-dimensional cohort breakdown
+            # Uses CTEs to avoid chasm-trap between order_items and order_payments
+            state.raw_sql = """
+WITH items_agg AS (
+    -- Aggregate GMV and freight per order to avoid fan-out
+    SELECT
+        oi.order_id,
+        SUM(oi.price)         AS order_gmv,
+        SUM(oi.freight_value) AS order_freight
+    FROM order_items oi
+    GROUP BY oi.order_id
+),
+review_agg AS (
+    SELECT
+        r.order_id,
+        AVG(r.review_score) AS avg_score
+    FROM order_reviews r
+    GROUP BY r.order_id
+)
+SELECT
+    c.customer_state,
+    COUNT(DISTINCT o.order_id)                                                  AS total_orders,
+    ROUND(AVG(rev.avg_score), 3)                                               AS avg_review_score,
+    ROUND(SUM(ia.order_gmv), 2)                                                AS total_gmv,
+    ROUND(
+        SUM(CASE WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+                 THEN 1.0 ELSE 0.0 END)
+        / NULLIF(COUNT(DISTINCT o.order_id), 0) * 100.0,
+        2
+    )                                                                          AS late_delivery_pct
+FROM orders o
+JOIN customers c    ON o.customer_id    = c.customer_id
+JOIN items_agg ia   ON o.order_id       = ia.order_id
+LEFT JOIN review_agg rev ON o.order_id  = rev.order_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+GROUP BY c.customer_state
+ORDER BY avg_review_score ASC
+LIMIT 50;
             """.strip()
-            state.sql_rationale = "Generated multi-dimensional cohort slice for root-cause driver attribution."
+            state.sql_rationale = (
+                "Generated multi-dimensional root-cause diagnostic: review score + delivery delay rate "
+                "by Brazilian state using CTEs to prevent chasm-trap fan-out."
+            )
             return state
 
         else:
-            # Track 2: Exploratory SQL Synthesis
+            # Track 2: Exploratory SQL Synthesis — Olist schema
             q_lower = state.question.lower()
-            if "top" in q_lower and "customer" in q_lower:
+
+            if "top" in q_lower and ("seller" in q_lower or "sellers" in q_lower):
                 state.raw_sql = """
-                    SELECT
-                        dim_customers.company_name,
-                        dim_customers.industry,
-                        dim_customers.company_tier,
-                        SUM(fct_subscriptions.mrr_amount_usd) as total_mrr
-                    FROM dim_customers
-                    JOIN fct_subscriptions ON dim_customers.customer_id = fct_subscriptions.customer_id
-                    WHERE fct_subscriptions.status = 'active' AND dim_customers.is_deleted = false
-                    GROUP BY dim_customers.company_name, dim_customers.industry, dim_customers.company_tier
-                    ORDER BY total_mrr DESC
-                    LIMIT 10;
+SELECT
+    s.seller_id,
+    s.seller_city,
+    s.seller_state,
+    COUNT(DISTINCT oi.order_id) AS total_orders,
+    ROUND(SUM(oi.price), 2)     AS total_gmv
+FROM sellers s
+JOIN order_items oi ON s.seller_id = oi.seller_id
+JOIN orders o       ON oi.order_id = o.order_id
+WHERE o.order_status != 'canceled'
+GROUP BY s.seller_id, s.seller_city, s.seller_state
+ORDER BY total_gmv DESC
+LIMIT 10;
                 """.strip()
-            elif "count" in q_lower and "customer" in q_lower:
+
+            elif "category" in q_lower or "categories" in q_lower:
                 state.raw_sql = """
-                    SELECT
-                        industry,
-                        company_tier,
-                        COUNT(*) as customer_count
-                    FROM dim_customers
-                    WHERE is_deleted = false
-                    GROUP BY industry, company_tier
-                    ORDER BY customer_count DESC;
+SELECT
+    ct.product_category_name_english AS category,
+    COUNT(DISTINCT oi.order_id)      AS orders,
+    ROUND(SUM(oi.price), 2)          AS gmv,
+    ROUND(AVG(r.review_score), 3)    AS avg_review_score
+FROM order_items oi
+JOIN orders o   ON oi.order_id = o.order_id
+JOIN products p ON oi.product_id = p.product_id
+LEFT JOIN category_translation ct ON p.product_category_name = ct.product_category_name
+LEFT JOIN order_reviews r         ON oi.order_id = r.order_id
+WHERE o.order_status != 'canceled'
+GROUP BY ct.product_category_name_english
+ORDER BY gmv DESC
+LIMIT 20;
                 """.strip()
+
+            elif "payment" in q_lower:
+                state.raw_sql = """
+SELECT
+    op.payment_type,
+    COUNT(DISTINCT op.order_id)  AS total_orders,
+    ROUND(SUM(op.payment_value), 2) AS total_payment_value,
+    ROUND(AVG(op.payment_installments), 2) AS avg_installments
+FROM order_payments op
+JOIN orders o ON op.order_id = o.order_id
+WHERE o.order_status != 'canceled'
+GROUP BY op.payment_type
+ORDER BY total_payment_value DESC;
+                """.strip()
+
+            elif "review" in q_lower or "rating" in q_lower or "csat" in q_lower:
+                state.raw_sql = """
+SELECT
+    c.customer_state,
+    COUNT(DISTINCT r.review_id)   AS review_count,
+    ROUND(AVG(r.review_score), 3) AS avg_review_score
+FROM order_reviews r
+JOIN orders o   ON r.order_id = o.order_id
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.order_status = 'delivered'
+GROUP BY c.customer_state
+ORDER BY avg_review_score ASC
+LIMIT 27;
+                """.strip()
+
             else:
-                # Default analytical exploratory slice
+                # Default: GMV by Brazilian state
                 state.raw_sql = """
-                    SELECT
-                        dim_plans.plan_name,
-                        COUNT(fct_subscriptions.subscription_id) as active_sub_count,
-                        SUM(fct_subscriptions.mrr_amount_usd) as total_mrr
-                    FROM fct_subscriptions
-                    JOIN dim_plans ON fct_subscriptions.plan_id = dim_plans.plan_id
-                    WHERE fct_subscriptions.status = 'active'
-                    GROUP BY dim_plans.plan_name
-                    ORDER BY total_mrr DESC;
+SELECT
+    c.customer_state,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    ROUND(SUM(oi.price), 2)   AS gmv
+FROM orders o
+JOIN customers c    ON o.customer_id = c.customer_id
+JOIN order_items oi ON o.order_id    = oi.order_id
+WHERE o.order_status != 'canceled'
+GROUP BY c.customer_state
+ORDER BY gmv DESC
+LIMIT 27;
                 """.strip()
-            state.sql_rationale = "Synthesized exploratory analytical SQL with verified foreign key join paths."
+
+            state.sql_rationale = (
+                "Synthesized exploratory analytical SQL with Olist schema linking "
+                "and chasm-trap-safe join paths."
+            )
             return state
