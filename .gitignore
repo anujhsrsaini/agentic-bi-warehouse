@@ -42,3 +42,12 @@ coverage.xml
 .DS_Store
 *.swp
 *.swo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local tool state
+.commandcode/
+

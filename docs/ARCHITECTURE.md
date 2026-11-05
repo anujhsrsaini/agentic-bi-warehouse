@@ -1,5 +1,7 @@
 # Enterprise Architecture Blueprint: Agentic BI & Governed Warehouse Question-Answering System
 
+> **Implementation status (current repo):** This document is a broader enterprise blueprint/reference and contains planned/generic examples that do **not** fully match the implemented Olist warehouse. For the **current, accurate implementation** (LangGraph `StateGraph` orchestration, Sarvam Token Factory at `https://api.sarvam.ai/v2/chat/completions` via `langchain-openai`, exact model placement: `sarvam-105b` for route/grounder/repair and `glm5.3-flash` for exploratory SQL/narrative, certified metrics compiled only from `config/semantic_layer.yaml`, SQLGlot validation before execution, `AGENTIC_BI_ENGINE=legacy|langgraph`, `.env`/`SARVAM_API_KEY`), see [`../ARCHITECTURE.md`](../ARCHITECTURE.md). The sections below are retained as design context.
+
 **Document Identifier**: `ARCH-AGENTIC-BI-001`  
 **Target System**: Multi-Agent Analytical Intelligence & Governed Semantic Warehouse Engine  
 **Author**: Agentic BI Systems Architect  

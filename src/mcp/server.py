@@ -120,12 +120,13 @@ def get_warehouse_catalog_resource() -> str:
 
 
 @mcp.prompt()
-def analyze_saas_metrics(metric_name: str = "arr", timeframe: str = "current") -> str:
-    """Pre-engineered prompt to run executive SaaS health analysis."""
+def analyze_saas_metrics(metric_name: str = "gmv", timeframe: str = "current") -> str:
+    """Pre-engineered prompt to run executive Olist e-commerce analysis."""
     return (
-        f"You are a Senior Strategic SaaS Financial Analyst. Please analyze the business metric '{metric_name}' "
-        f"for {timeframe}. Call the `query_analytics_warehouse` tool with relevant questions, inspect segment breakdowns "
-        f"across industry and tier, and provide an executive debrief highlighting key growth drivers and risks."
+        f"You are a Senior E-commerce Analytics Analyst (Olist Brazilian marketplace). Analyze the metric '{metric_name}' "
+        f"for {timeframe}. Call the `query_analytics_warehouse` tool with relevant questions, inspect breakdowns across "
+        f"customer_state, product category, seller_state, and payment_type as applicable, and provide an executive debrief "
+        f"with key drivers, risks, and data-backed recommendations."
     )
 
 

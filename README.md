@@ -22,6 +22,10 @@ git clone https://github.com/anujhsrsaini/agentic-bi-warehouse.git
 cd agentic-bi-warehouse
 pip install -r requirements.txt
 
+# Configure engine/LLM (LangGraph + Sarvam by default; legacy mode requires no LLM key)
+cp .env.example .env
+# Set SARVAM_API_KEY in .env for LLM-assisted routing/SQL/narrative (certified SQL is still compiled from config/semantic_layer.yaml)
+
 # (Optional) Re-ingest Olist data from Kaggle — already included as Parquet
 # python scripts/ingest_olist.py
 
@@ -85,17 +89,22 @@ flowchart TD
         CursorIDE["Cursor IDE / Agentic Tools (FastMCP)"]
     end
 
-    subgraph AgenticBrain["2. Multi-Agent Cognitive StateGraph"]
+    subgraph AgenticBrain["2. Multi-Agent Cognitive StateGraph (LangGraph)"]
         direction TB
-        A1["1. Triage & Intent Router<br>(Proactive Disambiguation)"]
+        Sarvam["Sarvam Token Factory (OpenAI-compatible)<br>https://api.sarvam.ai/v2/chat/completions via langchain-openai"]
+        A1["1. Triage & Intent Router<br>(sarvam-105b when enabled)"]
         A2["2. 3-Tier Value Grounder & Schema Linker<br>(Brazilian States + Payment Types + Statuses)"]
-        A3["3. SQL Generator & Query Planner<br>(Dual-Track: Certified vs. Exploratory)"]
-        A4["4. AST Security & Guardrail Validator<br>(7-Stage SQLGlot Firewall)"]
-        A5["5. Self-Healing Execution Agent<br>(Reflexion Loop <= 3)"]
-        A6["6. Diagnostic 'Why' & Canvas Synthesizer<br>(CSAT + Delivery Delay Attribution)"]
+        A3["3. SQL Generator & Query Planner<br>Certified: config/semantic_layer.yaml (deterministic)<br>Exploratory SQL: glm5.3-flash when enabled"]
+        A4["4. AST Security & Guardrail Validator<br>(7-Stage SQLGlot Firewall, before execution)"]
+        A5["5. Self-Healing Execution Agent<br>(bounded repair; sarvam-105b when enabled)"]
+        A6["6. Diagnostic 'Why' & Canvas Synthesizer<br>(CSAT + Delivery Delay Attribution; glm5.3-flash narrative when enabled)"]
 
+        Sarvam -.-> A1
+        Sarvam -.-> A3
+        Sarvam -.-> A5
+        Sarvam -.-> A6
         A1 --> A2 --> A3 --> A4 --> A5
-        A5 -.->|Runtime Error| A3
+        A5 -.->|Validation/Runtime Error| A3
         A5 --> A6
     end
 
@@ -122,6 +131,8 @@ flowchart TD
     UWAL --> Storage
     A6 --> Clients
 ```
+
+**Runtime/config notes:** default engine is `AGENTIC_BI_ENGINE=langgraph` (set `legacy` for the original deterministic pipeline). Sarvam LLM features use `SARVAM_API_KEY` / `.env` (see `.env.example`). **Certified metrics are always compiled from `config/semantic_layer.yaml` (LLM never authors certified SQL), and all SQL is validated by SQLGlot before execution.**
 
 ---
 

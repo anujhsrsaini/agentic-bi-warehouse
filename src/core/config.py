@@ -12,7 +12,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 class Settings(BaseSettings):
     """Global configuration settings for Agentic BI Warehouse."""
 
-    model_config = SettingsConfigDict(env_prefix="AGENTIC_BI_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_prefix="AGENTIC_BI_",
+        case_sensitive=False,
+    )
 
     # Project paths
     project_root: Path = PROJECT_ROOT
@@ -54,6 +60,24 @@ class Settings(BaseSettings):
     clickhouse_user: str = "default"
     clickhouse_password: str = ""
     clickhouse_database: str = "default"
+
+    # LangGraph / LangChain (Sarvam Token Factory)
+    engine: str = Field(default="langgraph", description="Execution engine: legacy|langgraph")
+    llm_provider: str = Field(default="sarvam", description="LLM provider identifier")
+    llm_base_url: str = Field(default="https://api.sarvam.ai/v2", description="OpenAI-compatible base URL")
+    llm_api_key: str | None = Field(default=None, description="LLM API key (prefer SARVAM_API_KEY env)")
+    sarvam_api_key: str | None = Field(default=None, description="Sarvam API key fallback env: SARVAM_API_KEY")
+    llm_model: str = Field(default="sarvam-105b", description="Default model ID")
+    llm_model_router: str | None = Field(default="sarvam-105b")
+    llm_model_grounder: str | None = Field(default="sarvam-105b")
+    llm_model_sql: str | None = Field(default="glm5.3-flash")
+    llm_model_repair: str | None = Field(default="sarvam-105b")
+    llm_model_narrative: str | None = Field(default="glm5.3-flash")
+    llm_temperature: float = 0.0
+    llm_timeout_s: int = 60
+    llm_max_retries: int = 2
+    llm_max_tokens: int = 2048
+    llm_reasoning_effort: str | None = Field(default="low", description="Passed via extra_body when supported")
 
 
 settings = Settings()
