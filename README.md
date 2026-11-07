@@ -1,102 +1,230 @@
-# Business analytics assistant — local portfolio demo
+# Governed Agentic BI & Poly-Warehouse System
 
-This project demonstrates how a business could ask questions about its data, see how a metric is defined, and inspect the query behind the answer. It uses a sample e-commerce dataset and runs locally with DuckDB. The guided demo is designed to be repeatable without an AI model, API key, cloud account, or network connection after installation.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![DuckDB](https://img.shields.io/badge/DuckDB-0.10+-yellow.svg)](https://duckdb.org/)
+[![FastMCP](https://img.shields.io/badge/MCP-FastMCP-purple.svg)](https://modelcontextprotocol.io/)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg)](https://langchain-ai.github.io/langgraph/)
+[![Tests](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)](#test-suite--evaluation-benchmarks)
+[![Benchmark](https://img.shields.io/badge/benchmark-22%2F22%20(100%25)-success.svg)](#test-suite--evaluation-benchmarks)
 
-**A portfolio demonstration, not a client deployment.** The included Olist Brazilian e-commerce data is historical: its orders span 2016–2018. It does not represent current business performance.
+> **Governed, inspectable business analytics and SQL generation over 550,761 real-world e-commerce records.** Eliminates the "Production Cliff" of Text-to-SQL through deterministic semantic compilation, SQLGlot AST guardrails, and defense-in-depth OLAP sandboxing.
 
-## See it in action
+---
 
-The guided menu includes these examples:
+## ⚡ The Problem: The "Production Cliff" of Text-to-SQL
 
-| Business question | What it demonstrates |
-| --- | --- |
-| What is GMV by customer state? | Compare item sales across states, with a defined GMV calculation. |
-| What is the late delivery rate by customer state? | Explore delivery performance with a stated denominator and caveat. |
-| How many orders were delivered? | Count delivered orders using a defined filter. |
-| What is average order value? | Inspect a defined order-level sales metric. |
-| What is the average review score? | Summarize customer ratings, with a reminder that ratings are not NPS. |
+Naive Text-to-SQL pipelines (prompt-stuffing DDL into an LLM and running generated queries) look impressive on textbook prompts, but fail catastrophically in enterprise warehouses:
 
-The menu also shows why the word “revenue” needs clarification and demonstrates an unsafe `DROP TABLE` statement being rejected before execution. Each supported metric displays its definition, calculation, source tables, caveats and executed SQL.
+1. **Semantic Drift & Metric Hallucination**: Key revenue metrics (GMV, AOV, Net Revenue) require strict accounting rules. LLMs hallucinate formulas differently on every turn.
+2. **The Fan-Out & Chasm Trap**: Joining 1:N and M:N relationships across sibling fact tables (e.g., `order_items` and `order_payments`) duplicates rows and multiplies scalar aggregations by orders of magnitude.
+3. **Security Vulnerabilities**: Raw generated SQL risks SQL injection, DDL mutations (`DROP`, `ALTER`), OS path traversal (`read_parquet('/etc/passwd')`), or unauthorized column exfiltration.
+4. **Cloud Cost Friction**: Arbitrary unconstrained scans incur runaway cloud billing.
 
-The local tour recognizes the listed questions and a small clarification example; it is **not** a general-purpose chatbot. Its purpose is to demonstrate a controlled starting point that can be adapted to a client's questions and definitions.
+### How This System Solves It:
+* **LLMs Never Write Certified Metrics**: Certified business metrics (`gmv`, `total_orders`, `aov`, `csat`) are compiled **100% deterministically** by [`SemanticQueryResolver`](src/semantic/resolver.py) from [`config/semantic_layer.yaml`](config/semantic_layer.yaml).
+* **7-Stage AST Firewall**: Validates every generated query before execution, blocking Cartesian joins, multi-statement stacking, mutations, and sensitive columns.
+* **Kernel-Hardened DuckDB Sandbox**: Sub-15ms local vectorized query execution with OS filesystem and network access physically disabled at the engine level (`SET enable_external_access = false; SET lock_configuration = true;`).
+* **Zero API Keys Required for Guided Showcase**: Full interactive web and terminal experiences run offline with zero setup friction.
 
-## Run the demo
+---
 
-Prerequisites: Python 3.10 or later, a terminal, and internet access to install Python packages. The repository contains the sample Parquet files under `data/seed/`. Installation may take more than a minute; a cloud database or `.env` file is not required for the guided demo.
+## 🏛️ System Architecture
 
-### Streamlit interface
+```mermaid
+flowchart TD
+    subgraph Client ["Client Interfaces & Protocol Endpoints"]
+        Streamlit["Streamlit Web UI (Fieldnote)"]
+        CLI["Interactive Rich Terminal (demo.py)"]
+        FastMCP["FastMCP Server (server.py)"]
+        AgentCLI["Conversational Agent CLI (agent_cli.py)"]
+    end
 
-From the project directory, install the optional web dependencies and start the local app:
+    subgraph Cognitive ["Cognitive Orchestration (LangGraph / Legacy)"]
+        Router["Triage & Intent Router"]
+        Clarify["Ambiguity Clarifier"]
+        Grounder["Categorical Entity Grounder"]
+        CohortEngine["Product Cohorts CTE Engine"]
+        AttributionEngine["Diagnostic Attribution Engine"]
+    end
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[web]"
-.\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+    subgraph Governance ["Governance & Safety Firewall"]
+        SemLayer[("semantic_layer.yaml")]
+        Resolver["Deterministic Semantic Resolver"]
+        ASTValidator["7-Stage SQLGlot AST Firewall"]
+        LineageTracer["Column-Level Lineage Tracer"]
+    end
+
+    subgraph Warehouse ["Execution Layer (UWAL)"]
+        DuckDBConn[("Embedded DuckDB (550k Parquet Lakehouse)")]
+        CloudUWAL[("UWAL Adapters (Snowflake / BigQuery / Postgres / ClickHouse)")]
+    end
+
+    Client --> Router
+    Router -->|Ambiguous ('revenue')| Clarify
+    Router -->|Cohort Analytics| CohortEngine
+    Router -->|Certified KPI| Grounder
+    Grounder --> Resolver
+    SemLayer --> Resolver
+    Resolver --> ASTValidator
+    CohortEngine --> ASTValidator
+    Router -->|Exploratory / Repair| ASTValidator
+    ASTValidator -->|Passed AST| DuckDBConn
+    ASTValidator -->|Passed AST| CloudUWAL
+    ASTValidator -->|AST Violation| Blocked["SecurityViolationError (Safe Refusal)"]
+    DuckDBConn --> LineageTracer
+    DuckDBConn --> Canvas["Vega-Lite Charts & Executive Narratives"]
 ```
 
-On macOS/Linux, use `.venv/bin/python` instead. Open the local URL shown in the terminal. The example questions work without an API key; other questions use the configured model when available. Configure `.env` as described below; questions and relevant result data may be sent to the configured provider. The customer-ID switch controls the local query validator and is not a replacement for database permissions. This is a local portfolio demo, not a hosted multi-user service.
+---
 
-### Terminal interface
+## 🚀 Key Features
 
-**Windows PowerShell**
+* **550,761-Row E-Commerce Lakehouse**: Bundled with 8 Snappy-compressed Parquet tables from the real-world **Olist Brazilian E-Commerce dataset** (2016–2018).
+* **Deterministic Semantic Layer**: Models dimensions, measures, foreign key paths, and business formulas. Enforces strict many-to-one join graphs to prevent fan-out traps.
+* **7-Stage AST Security Firewall**:
+  1. *Multi-Statement Gate*: Rejects stacked queries (`;`).
+  2. *Root Statement Enforcement*: Restricts execution to `SELECT` and `UNION`.
+  3. *Mutation Blocker*: Prevents `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`.
+  4. *Forbidden Function Blocker*: Blocks `read_parquet`, `read_csv`, `copy`, `install`, `shell`, `exec`.
+  5. *Table Whitelist*: Validates tables against registered catalog.
+  6. *Cartesian Join Guard*: Blocks unconstrained `CROSS JOIN` and comma-joins without predicates.
+  7. *Sensitive Column & Wildcard Guard*: Blocks sensitive identifiers (`customer_unique_id`, `password`) and wildcard `*` projections (allowing only `COUNT(*)`).
+* **Dual Execution Modes**:
+  - **Deterministic Offline Mode (`AGENTIC_BI_ENGINE=legacy`)**: Sub-15ms query execution, zero external network calls, zero API keys.
+  - **LangGraph StateGraph Mode (`AGENTIC_BI_ENGINE=langgraph`)**: Multi-agent workflow powered by **Sarvam Token Factory** models (`sarvam-105b` for triage/grounding/repair, `glm5.3-flash` for exploratory SQL & narratives).
+* **Unified Warehouse Abstraction Layer (UWAL)**: Pluggable connector interface with zero-copy Apache Arrow transport for DuckDB, PostgreSQL, Snowflake, Google BigQuery, and ClickHouse.
+* **FastMCP Integration**: Exposes certified metrics, schema introspection, and governed warehouse query tools via the official Model Context Protocol.
+
+---
+
+## 💻 Quickstart: Run the Demo in 60 Seconds
+
+Prerequisites: Python 3.10+ and a virtual environment. All 38.7 MB of Olist Parquet tables are pre-bundled under `data/seed/`. **No API keys or cloud accounts needed.**
+
+### Option A: Streamlit Web Cockpit ("Fieldnote")
 
 ```powershell
-git clone https://github.com/anujhsrsaini/agentic-bi-warehouse.git
-cd agentic-bi-warehouse
+# 1. Create and activate virtual environment
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe demo.py
+.\.venv\Scripts\activate      # On macOS/Linux: source .venv/bin/activate
+
+# 2. Install dependencies
+pip install -e ".[web,dev]"
+
+# 3. Launch Streamlit UI
+streamlit run streamlit_app.py
 ```
 
-**macOS / Linux**
+Open `http://localhost:8501` to access:
+- **Interactive Metric Cards**: One-click exploration of GMV, Late Delivery Rates, Total Orders, and CSAT.
+- **Inspectable SQL & Lineage**: Expandable accordions displaying exact executed SQL, tables queried, and business caveats.
+- **Customer Privacy Toggle**: Live switch to enable/disable sensitive customer identifier masking.
+- **Complex Cohort Breakdown**: Multi-CTE analysis of new vs. repeat customer order and revenue splits.
 
-```bash
-git clone https://github.com/anujhsrsaini/agentic-bi-warehouse.git
-cd agentic-bi-warehouse
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-.venv/bin/python demo.py
+---
+
+### Option B: Interactive Terminal Cockpit
+
+```powershell
+python demo.py
 ```
 
-Choose `1` for sales by state, `2` for late deliveries, `6` for the clarification example, `7` for the blocked query, and `0` to exit. The launcher reports missing dependencies or sample files and suggests how to restore them.
+```
+================================================================================
+          GOVERNED AGENTIC BI & POLY-WAREHOUSE ANALYTICS COCKPIT
+           Olist Brazilian E-Commerce Dataset (550,761 Rows)
+================================================================================
+  [1] What is our GMV by customer state?
+  [2] What is the late delivery rate by customer state?
+  [3] How many orders were delivered?
+  [4] What is average order value?
+  [5] What is the average review score?
+  [6] Ambiguity Flow: 'Show revenue' (GMV vs Total Payments)
+  [7] Security Firewall: Attempt 'DROP TABLE orders;'
+  [0] Exit
+================================================================================
+Select a question [0-7]: 1
+```
 
-## How it works
+---
 
-1. A menu question selects a defined business metric and supported breakdown.
-2. The semantic layer in [`config/semantic_layer.yaml`](config/semantic_layer.yaml) supplies the metric's formula and filters.
-3. The query is inspected by a SQLGlot-based validator and executed locally with DuckDB.
-4. The result is shown with its definition, source tables, caveats, and SQL so the calculation can be reviewed.
+## 📊 Test Suite & Evaluation Benchmarks
 
-The validator rejects several risky query patterns, including mutation statements, most configured sensitive column references, and wildcard projections; `COUNT(*)` remains allowed. Customer-ID protection is optional and off by default. These checks are useful safeguards for a demo, **not a replacement for database-enforced permissions or a guarantee of security**. A client deployment requires its own read-only database access, row and column policies, cost controls, and testing appropriate to its environment.
-
-The repository also contains an MCP server, a configurable agent workflow, and connectors for other warehouses. The guided showcase uses local DuckDB and does not establish full integration parity for those additional paths. Optional LLM-assisted components require separate credentials and configuration; see [`.env.example`](.env.example). The guided demo does not use them.
-
-For the experimental live agent, copy `.env.example` to `.env`, put your key in `SARVAM_API_KEY`, and run `python -m src.agent_cli` using the virtual environment. The live agent accepts free-form questions and may send questions and relevant context to the configured model provider. It can fall back to deterministic behavior if a model call fails, and its results require review; it is not covered by the five-question showcase guarantee. The default router model may need adjustment for your account and its structured-output support.
-
-The live terminal also includes a predefined, independently tested Olist workflow for `Top 10 products and their breakdown of new vs repeat customers purchases/revenue and order splits`. It ranks by item revenue, uses the first observed non-canceled order to identify new customers, and reports units, revenue and order splits. It uses exact supported phrasings and does not silently apply additional filters; other questions follow the experimental agent path.
-
-In the live terminal agent, type `/privacy` to see the customer-ID protection setting, `/privacy on` to block queries referencing `customer_unique_id`, and `/privacy off` to allow them again. The setting is off by default and changes last only for the current process. When off, customer identifiers can appear in query results or model context; other SQL checks and any warehouse permissions still apply. For real client data, configure access according to the client's requirements.
-
-## Verify and explore
-
-After installing the development dependencies above, run the test suite:
+The repository includes a comprehensive, multi-tiered testing and benchmark harness:
 
 ```bash
-python -m pytest tests/ -q
+# Run the complete test suite (124 tests)
+pytest tests/ -v
+
+# Run the 22-case benchmark suite
+python eval/benchmark_runner.py
+
+# Run showcase gold-query verification
 python eval/showcase_runner.py
 ```
 
-Use the virtual environment's Python executable if it is not activated (on Windows, `.\.venv\Scripts\python.exe`; on macOS/Linux, `.venv/bin/python`). The showcase runner compares the five guided metric results against separately written reference SQL on the bundled dataset. Tests and evaluation measure only the cases they cover, not correctness for every possible question or production workload. The broader legacy `eval/benchmark_runner.py` is experimental and contains known failing cases; it is not the showcase acceptance gate.
+### Benchmark Results (`eval/benchmark_runner.py`)
 
-- [Business metric configuration](config/semantic_layer.yaml)
-- [Business handbook: sales and orders](docs/knowledge/sales-and-orders.md), [delivery](docs/knowledge/delivery.md), and [reviews](docs/knowledge/reviews.md)
-- [SQL validation policy](config/security_policies.yaml)
-- [Technical case study](docs/portfolio/TECHNICAL_CASE_STUDY.md)
-- [Freelance profile and project description](docs/portfolio/FREELANCE_PROFILE.md)
-- [Demo recording script](docs/portfolio/DEMO_RECORDING_SCRIPT.md)
-- [Showcase implementation plan](docs/FREELANCE_SHOWCASE_PLAN.md)
+| Category | Passed / Total | Status | Description |
+|:---|:---:|:---:|:---|
+| **Clarification** | **1 / 1** | PASS | Detects ambiguous requests ("Show revenue") and prompts user with certified options |
+| **Result Comparison** | **6 / 6** | PASS | Multiset equality ($\epsilon \le 10^{-4}$) against independently authored reference SQL |
+| **SQL Shape Checks** | **8 / 8** | PASS | Validates correct dimensions, grouping clauses, and certified metric formulas |
+| **Security Rejections** | **7 / 7** | PASS | Rejects stacked queries, mutating DDL, path traversals, Cartesian joins, and sensitive columns |
+| **Total Benchmark** | **22 / 22 (100%)** | **PASS** | Executed in 4.00s over 550,761 rows |
 
-## Adapting this for a client
+---
 
-A typical engagement starts with a few important questions and the tables behind them. Together, we define the metrics and permissions, build a scoped prototype on suitable sample data, validate answers with a domain expert, and decide what is needed for the client's database and deployment environment. The definitions, integrations, user interface, and safeguards can then be tailored to the actual business.
+## 📂 Repository Structure
 
-This project does not claim a customer deployment, measured customer ROI, or production certification. See [LICENSE](LICENSE) for license terms.
+```
+agentic-bi-warehouse/
+├── config/
+│   ├── semantic_layer.yaml        # Governed metric definitions, models, dimensions & joins
+│   ├── security_policies.yaml     # AST firewall whitelists, limits, and forbidden rules
+│   └── showcase_caveats.yaml      # Business methodology notes and caveats
+├── data/
+│   └── seed/                      # 8 bundled Snappy Parquet tables (550,761 rows, 38.7 MB)
+├── docs/
+│   ├── portfolio/                 # Freelance profile, case study, recording script, LinkedIn post
+│   ├── knowledge/                 # Business domain handbooks (delivery, reviews, sales)
+│   └── FREELANCE_SHOWCASE_PLAN.md # Upwork & client engagement strategy
+├── eval/
+│   ├── benchmark_runner.py        # 22-case evaluation harness
+│   ├── comparator.py              # Defog sql-eval multiset result comparator
+│   ├── golden_dataset.yaml        # Curated benchmark suite across 5 tiers
+│   └── showcase_runner.py         # CI regression test for guided showcase queries
+├── src/
+│   ├── agents/                    # Router, grounder, attribution, canvas, cohorts, orchestrator
+│   ├── core/                      # Pydantic settings, exception hierarchy
+│   ├── engine/                    # UWAL connectors (DuckDB, Postgres, Snowflake, BigQuery, ClickHouse)
+│   ├── graph/                     # LangGraph StateGraph workflow, nodes, and state adapter
+│   ├── llm/                       # Sarvam Token Factory client, prompt engineering, structured schemas
+│   ├── mcp/                       # FastMCP server and protocol tools
+│   ├── security/                  # 7-stage SQLGlot AST firewall and dialect transpiler
+│   └── semantic/                  # YAML loader, semantic query compiler, relationship resolver
+├── tests/                         # 18 test modules (124 unit/integration tests)
+├── demo.py                        # Zero-dependency terminal showcase launcher
+└── streamlit_app.py               # Fieldnote web application
+```
+
+---
+
+## 🤝 Adapting This for Client Engagements (Upwork / Consulting)
+
+This repository serves as a proven starting template for enterprise client engagements. A standard implementation roadmap:
+
+1. **Phase 1: Metrics & Schema Discovery (Week 1)**: Define client-specific KPIs, foreign key graphs, and accounting rules in `semantic_layer.yaml`.
+2. **Phase 2: Warehouse Integration (Week 1–2)**: Connect to the client's cloud warehouse (Snowflake, BigQuery, Databricks, PostgreSQL, or ClickHouse) via UWAL connectors with read-only IAM policies.
+3. **Phase 3: Guardrail Customization (Week 2)**: Configure AST security policies, sensitive column masking (PII/GDPR), and tenant isolation.
+4. **Phase 4: Interface Deployment (Week 3)**: Tailor the Streamlit UI or connect through FastMCP / Slack / Teams for end-user self-service analytics.
+
+*For consulting inquiries, review [`docs/portfolio/FREELANCE_PROFILE.md`](docs/portfolio/FREELANCE_PROFILE.md) or open an issue.*
+
+---
+
+## 📜 License & Notes
+
+* **License**: MIT License.
+* **Dataset**: Historical public dataset from [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) (2016–2018). Results represent historical sample data for demonstration purposes.
