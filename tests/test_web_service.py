@@ -50,6 +50,15 @@ def test_automatic_mode_uses_example_without_key_and_routes_other_questions(monk
     assert "Sarvam key" in execute_question("different question", "auto", False)["error"]
 
 
+def test_category_cohort_analysis():
+    q = "Share the Top 10 product categories and the customer new vs repeat share in terms of revenue and also need category % as total of the revenue"
+    response = execute_question(q, "auto", False)
+    assert response.get("error") is None
+    assert response["label"] == "Defined category analysis"
+    assert response["data"].num_rows == 10
+    assert "category_pct_of_total_revenue" in response["data"].column_names
+
+
 def test_parallel_sessions_do_not_share_privacy_choice(monkeypatch):
     entered, release = Event(), Event()
     seen = []

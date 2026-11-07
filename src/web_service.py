@@ -98,22 +98,36 @@ def _from_state(state: AgenticBIState, governed: bool = False) -> dict:
     if state.execution_result is None:
         return {"error": "The assistant did not return a result. Try rephrasing your question."}
     summary = state.summary_narrative
+    method = "The assistant generated this answer from the SQL and result shown below. Review its interpretation and assumptions."
+    label = "Exploratory analysis · review before use"
     if governed:
         rows = state.execution_result.to_pylist()
         if rows:
             top = rows[0]
-            summary = (
-                f"The highest-revenue product in this sample generated R$ {top['revenue']:,.2f} "
-                f"across {top['orders']:,} orders. Of those orders, {top['new_order_pct']:.2f}% "
-                f"were customers' first observed orders and {top['repeat_order_pct']:.2f}% came from returning customers. "
-                "The product ID and the full breakdown are shown below."
-            )
+            if "orders" in top and "new_order_pct" in top:
+                summary = (
+                    f"The highest-revenue product in this sample generated R$ {top['revenue']:,.2f} "
+                    f"across {top['orders']:,} orders. Of those orders, {top['new_order_pct']:.2f}% "
+                    f"were customers' first observed orders and {top['repeat_order_pct']:.2f}% came from returning customers. "
+                    "The product ID and the full breakdown are shown below."
+                )
+                method = "Products are ranked by item revenue, excluding freight and canceled orders. New means the customer's first observed non-canceled order in the dataset; repeat means a later order. Percentages use orders containing each product. Product names and purchases before the dataset are not available."
+                label = "Defined product analysis"
+            elif "category" in top and "category_pct_of_total_revenue" in top:
+                summary = (
+                    f"The highest-revenue category is '{top['category']}', generating R$ {top['revenue']:,.2f} "
+                    f"({top['category_pct_of_total_revenue']:.2f}% of total revenue). "
+                    f"New customers accounted for {top['new_revenue_pct']:.2f}% of category revenue, "
+                    f"and repeat customers accounted for {top['repeat_revenue_pct']:.2f}%."
+                )
+                method = "Categories are ranked by item revenue, excluding freight and canceled orders. Total revenue share is computed via window aggregation across all categories. New means the customer's first observed order; repeat means a subsequent order."
+                label = "Defined category analysis"
     return {
         "summary": summary,
-        "method": "Products are ranked by item revenue, excluding freight and canceled orders. New means the customer's first observed non-canceled order in the dataset; repeat means a later order. Percentages use orders containing each product. Product names and purchases before the dataset are not available." if governed else "The assistant generated this answer from the SQL and result shown below. Review its interpretation and assumptions.",
+        "method": method,
         "sql": state.validated_sql,
         "data": state.execution_result.data,
         "sources": _source_tables(state.validated_sql) if state.validated_sql else [],
         "caveats": ["Olist is historical data from 2016–2018; it does not represent current performance."],
-        "label": "Defined product analysis" if governed else "Exploratory analysis · review before use",
+        "label": label,
     }

@@ -137,12 +137,23 @@ class ASTSecurityValidator:
         for join in root.find_all(exp.Join):
             # Check for CROSS JOIN
             if join.kind and "CROSS" in join.kind.upper():
-                raise SecurityViolationError(
-                    "Unconstrained CROSS JOIN detected. Queries must specify explicit join conditions.",
-                    "CARTESIAN_JOIN_VIOLATION"
-                )
+                target_name = (join.this.name or "").lower() if hasattr(join.this, "name") else ""
+                # Permit CROSS JOIN only for registered CTEs that are scalar aggregations (no GROUP BY)
+                is_scalar_cte = False
+                if target_name in cte_aliases:
+                    for cte in root.find_all(exp.CTE):
+                        if (cte.alias or "").lower() == target_name:
+                            select = cte.this if isinstance(cte.this, exp.Select) else None
+                            if select and not select.args.get("group"):
+                                is_scalar_cte = True
+                            break
+                if not is_scalar_cte:
+                    raise SecurityViolationError(
+                        "Unconstrained CROSS JOIN detected. Queries must specify explicit join conditions.",
+                        "CARTESIAN_JOIN_VIOLATION"
+                    )
             # Check for comma-joins without ON or USING predicates
-            if not join.args.get("on") and not join.args.get("using"):
+            elif not join.args.get("on") and not join.args.get("using"):
                 raise SecurityViolationError(
                     "Join missing ON or USING predicate. Unconstrained joins are forbidden.",
                     "CARTESIAN_JOIN_VIOLATION"

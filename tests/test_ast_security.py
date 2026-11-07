@@ -127,3 +127,23 @@ def test_sensitive_column_policy_applies_across_supported_dialects(ast_validator
     with pytest.raises(SecurityViolationError) as exc_info:
         ast_validator.validate_and_sanitize("SELECT customer_unique_id FROM customers", dialect=dialect)
     assert exc_info.value.violation_type == "SENSITIVE_COLUMN_ACCESS"
+
+
+def test_permits_scalar_cte_cross_join(ast_validator):
+    sql = "WITH totals AS (SELECT SUM(price) AS total_rev FROM order_items) SELECT o.order_id, t.total_rev FROM orders o CROSS JOIN totals t"
+    sanitized, _ = ast_validator.validate_and_sanitize(sql)
+    assert "CROSS JOIN totals" in sanitized
+
+
+def test_blocks_grouped_cte_cross_join(ast_validator):
+    sql = "WITH totals AS (SELECT customer_id, SUM(order_id) AS rev FROM orders GROUP BY customer_id) SELECT o.order_id, t.rev FROM orders o CROSS JOIN totals t"
+    with pytest.raises(SecurityViolationError) as exc_info:
+        ast_validator.validate_and_sanitize(sql)
+    assert exc_info.value.violation_type == "CARTESIAN_JOIN_VIOLATION"
+
+
+def test_blocks_physical_table_cross_join(ast_validator):
+    sql = "SELECT o.order_id, oi.product_id FROM orders o CROSS JOIN order_items oi"
+    with pytest.raises(SecurityViolationError) as exc_info:
+        ast_validator.validate_and_sanitize(sql)
+    assert exc_info.value.violation_type == "CARTESIAN_JOIN_VIOLATION"
