@@ -1,9 +1,26 @@
 """Local interactive portfolio demo. Run with: streamlit run streamlit_app.py."""
 
+import os
+import sys
+from pathlib import Path
 import warnings
 import re
 
 import streamlit as st
+
+# Ensure repository root is on sys.path for Streamlit Cloud deployment
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+# Bridge Streamlit Cloud secrets to environment variables if configured
+try:
+    if hasattr(st, "secrets"):
+        for secret_key in ("SARVAM_API_KEY", "AGENTIC_BI_SARVAM_API_KEY", "AGENTIC_BI_ENGINE", "AGENTIC_BI_LLM_API_KEY"):
+            if secret_key in st.secrets and secret_key not in os.environ:
+                os.environ[secret_key] = str(st.secrets[secret_key])
+except Exception:
+    pass
 
 from src.web_service import GUIDED_QUESTIONS, execute_question
 
