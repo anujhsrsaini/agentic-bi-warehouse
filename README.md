@@ -33,47 +33,54 @@ Naive Text-to-SQL pipelines (prompt-stuffing DDL into an LLM and running generat
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Client Interfaces & Protocol Endpoints"]
-        Streamlit["Streamlit Web UI (Fieldnote)"]
-        CLI["Interactive Rich Terminal (demo.py)"]
-        FastMCP["FastMCP Server (server.py)"]
-        AgentCLI["Conversational Agent CLI (agent_cli.py)"]
+    subgraph UI ["Client Interfaces & Protocol Endpoints"]
+        Streamlit["Streamlit Web UI - Fieldnote"]
+        CLI["Interactive Rich Terminal - demo.py"]
+        FastMCP["FastMCP Protocol Server"]
+        AgentCLI["Conversational Agent CLI"]
     end
 
-    subgraph Cognitive ["Cognitive Orchestration (LangGraph / Legacy)"]
-        Router["Triage & Intent Router"]
-        Clarify["Ambiguity Clarifier"]
+    subgraph Orchestration ["Cognitive Orchestration Layer"]
+        Router["Triage and Intent Router"]
+        Clarify["Ambiguity Clarification Prompt"]
         Grounder["Categorical Entity Grounder"]
         CohortEngine["Product Cohorts CTE Engine"]
-        AttributionEngine["Diagnostic Attribution Engine"]
     end
 
-    subgraph Governance ["Governance & Safety Firewall"]
-        SemLayer[("semantic_layer.yaml")]
+    subgraph Governance ["Governance and Safety Firewall"]
+        SemLayer["semantic_layer.yaml Catalog"]
         Resolver["Deterministic Semantic Resolver"]
         ASTValidator["7-Stage SQLGlot AST Firewall"]
         LineageTracer["Column-Level Lineage Tracer"]
     end
 
-    subgraph Warehouse ["Execution Layer (UWAL)"]
-        DuckDBConn[("Embedded DuckDB (550k Parquet Lakehouse)")]
-        CloudUWAL[("UWAL Adapters (Snowflake / BigQuery / Postgres / ClickHouse)")]
+    subgraph Execution ["Execution Layer - UWAL"]
+        DuckDBConn["Embedded DuckDB - 550k Olist Lakehouse"]
+        CloudUWAL["Cloud Adapters - Snowflake, BigQuery, Postgres, ClickHouse"]
     end
 
-    Client --> Router
-    Router -->|Ambiguous ('revenue')| Clarify
-    Router -->|Cohort Analytics| CohortEngine
-    Router -->|Certified KPI| Grounder
+    Streamlit --> Router
+    CLI --> Router
+    FastMCP --> Router
+    AgentCLI --> Router
+
+    Router -->|"Ambiguous intent"| Clarify
+    Router -->|"Cohort analysis"| CohortEngine
+    Router -->|"Certified metric"| Grounder
+    Router -->|"Exploratory query"| ASTValidator
+
     Grounder --> Resolver
     SemLayer --> Resolver
     Resolver --> ASTValidator
     CohortEngine --> ASTValidator
-    Router -->|Exploratory / Repair| ASTValidator
-    ASTValidator -->|Passed AST| DuckDBConn
-    ASTValidator -->|Passed AST| CloudUWAL
-    ASTValidator -->|AST Violation| Blocked["SecurityViolationError (Safe Refusal)"]
+
+    ASTValidator -->|"Validated SQL"| DuckDBConn
+    ASTValidator -->|"Validated SQL"| CloudUWAL
+    ASTValidator -->|"Security violation"| Blocked["Security Refusal Error"]
+
     DuckDBConn --> LineageTracer
-    DuckDBConn --> Canvas["Vega-Lite Charts & Executive Narratives"]
+    DuckDBConn --> Canvas["Vega-Lite Charts and Narratives"]
+    LineageTracer --> Canvas
 ```
 
 ---
