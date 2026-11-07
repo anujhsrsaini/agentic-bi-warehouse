@@ -77,3 +77,53 @@ def test_permits_ctes_in_select(ast_validator):
     """
     clean_sql, _ = ast_validator.validate_and_sanitize(sql)
     assert "LIMIT 1000" in clean_sql
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT customer_unique_id FROM customers",
+    "SELECT c.customer_unique_id AS identifier FROM customers AS c",
+    "SELECT UPPER(customer_unique_id) AS identifier FROM customers",
+    "SELECT customer_id FROM customers WHERE customer_unique_id = 'x'",
+    "WITH x AS (SELECT customer_unique_id AS identifier FROM customers) SELECT identifier FROM x",
+    'SELECT "CUSTOMER_UNIQUE_ID" FROM customers',
+])
+def test_rejects_sensitive_column_references(ast_validator, sql, monkeypatch):
+    from src.core.config import settings
+    monkeypatch.setattr(settings, "customer_identifier_protection", True)
+    with pytest.raises(SecurityViolationError) as exc_info:
+        ast_validator.validate_and_sanitize(sql)
+    assert exc_info.value.violation_type == "SENSITIVE_COLUMN_ACCESS"
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM customers",
+    "SELECT c.* FROM customers AS c",
+    "WITH x AS (SELECT * FROM customers) SELECT customer_id FROM x",
+    "WITH x AS (SELECT customer_id FROM customers) SELECT * FROM x",
+])
+def test_rejects_wildcard_projections(ast_validator, sql):
+    with pytest.raises(SecurityViolationError) as exc_info:
+        ast_validator.validate_and_sanitize(sql)
+    assert exc_info.value.violation_type == "WILDCARD_PROJECTION"
+
+
+def test_permits_count_star_without_exposing_columns(ast_validator):
+    sql, _ = ast_validator.validate_and_sanitize("SELECT COUNT(*) AS n FROM customers")
+    assert "COUNT(*)" in sql
+    assert "LIMIT 1000" in sql
+
+
+def test_inner_limit_does_not_replace_outer_limit(ast_validator):
+    sql, _ = ast_validator.validate_and_sanitize(
+        "WITH x AS (SELECT order_id FROM orders LIMIT 1) SELECT order_id FROM x"
+    )
+    assert sql.endswith("LIMIT 1000")
+
+
+@pytest.mark.parametrize("dialect", ["duckdb", "postgres", "snowflake", "bigquery", "clickhouse"])
+def test_sensitive_column_policy_applies_across_supported_dialects(ast_validator, dialect, monkeypatch):
+    from src.core.config import settings
+    monkeypatch.setattr(settings, "customer_identifier_protection", True)
+    with pytest.raises(SecurityViolationError) as exc_info:
+        ast_validator.validate_and_sanitize("SELECT customer_unique_id FROM customers", dialect=dialect)
+    assert exc_info.value.violation_type == "SENSITIVE_COLUMN_ACCESS"

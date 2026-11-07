@@ -36,6 +36,32 @@ def test_intent_router_gmv_certified():
     assert routed.metric_name == "gmv"
 
 
+@pytest.mark.parametrize(("question", "metric", "dimensions"), [
+    ("How many total delivered orders do we have?", "total_orders", []),
+    ("What is our total payment value?", "total_payment_value", []),
+    ("What is our freight to GMV ratio?", "freight_value_ratio", []),
+    ("What is our total payment value by payment type?", "total_payment_value", ["payment_type"]),
+    ("What is our average review score in Rio de Janeiro?", "avg_review_score", []),
+])
+def test_router_uses_specific_metric_and_explicit_grouping(question, metric, dimensions):
+    result = IntentRouterAgent().route(AgenticBIState(question=question))
+    assert result.metric_name == metric
+    assert result.dimensions == dimensions
+
+
+def test_rio_does_not_fuzzy_match_another_state():
+    matches = CategoricalEntityGrounder().ground_entities("average review score in Rio de Janeiro")
+    states = [value for table, col, value, _ in matches if table == "customers" and col == "customer_state"]
+    assert states == ["RJ"]
+
+
+def test_canvas_handles_null_metric_without_inventing_value():
+    agent = VisualCanvasAgent()
+    state = AgenticBIState(question="review score")
+    narrative = agent._generate_narrative(state, [{"score": None}], ["score"])
+    assert "No value is available" in narrative
+
+
 def test_entity_grounder_brazilian_states():
     grounder = CategoricalEntityGrounder()
     matches = grounder.ground_entities("What is our GMV in São Paulo?")

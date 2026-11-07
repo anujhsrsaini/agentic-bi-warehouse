@@ -25,19 +25,14 @@ class LineageNode:
     source_table: str | None = None
     expression: str | None = None
     children: list[LineageNode] = field(default_factory=list)
+    available: bool = True
 
 
 class ColumnLineageTracer:
     """Traces and renders column-level data lineage."""
 
     def __init__(self, schema: dict[str, Any] | None = None):
-        self.schema = schema or {
-            "dim_customers": {"customer_id": "text", "company_name": "text", "industry": "text", "company_tier": "text", "is_deleted": "boolean"},
-            "dim_plans": {"plan_id": "text", "plan_name": "text", "tier": "text", "base_price_usd": "float"},
-            "fct_subscriptions": {"subscription_id": "text", "customer_id": "text", "plan_id": "text", "status": "text", "mrr_amount_usd": "float"},
-            "fct_invoices": {"invoice_id": "text", "customer_id": "text", "subscription_id": "text", "total_amount_usd": "float", "status": "text"},
-            "fct_mrr_movements": {"movement_id": "text", "customer_id": "text", "movement_type": "text", "mrr_delta_usd": "float"},
-        }
+        self.schema = schema or {}
 
     def trace(self, column: str, sql: str, dialect: str = "duckdb") -> LineageNode:
         """Trace lineage of a column in SQL query."""
@@ -45,8 +40,7 @@ class ColumnLineageTracer:
             node = lineage(column, sql, schema=self.schema, dialect=dialect)
             return self._build_node(node)
         except Exception:
-            # Fallback simple node if sqlglot lineage parser hits a complex expression
-            return LineageNode(name=column, expression=column)
+            return LineageNode(name=column, available=False)
 
     def _build_node(self, node: Any) -> LineageNode:
         source_tbl = str(node.source.name) if hasattr(node, "source") and hasattr(node.source, "name") else None
@@ -67,6 +61,8 @@ class ColumnLineageTracer:
     def to_mermaid(self, column: str, sql: str) -> str:
         """Generate Mermaid flowchart diagram."""
         root = self.trace(column, sql)
+        if not root.available:
+            return f'flowchart LR\n    unavailable["Lineage unavailable for {column}"]'
         lines = ["flowchart LR"]
         visited = set()
 
@@ -90,6 +86,8 @@ class ColumnLineageTracer:
     def to_ascii_tree(self, column: str, sql: str) -> str:
         """Generate ASCII hierarchy tree string."""
         root = self.trace(column, sql)
+        if not root.available:
+            return f"Lineage unavailable for {column}"
         output_lines = [f"Lineage: {column}"]
 
         def _render(node: LineageNode, prefix: str = "", is_last: bool = True):
@@ -107,10 +105,7 @@ class ColumnLineageTracer:
 
     def generate_audit_narrative(self, column: str, sql: str) -> str:
         """Generate executive plain-English mathematical audit narrative."""
-        return (
-            f"Mathematical Lineage Audit for [{column}]:\n"
-            f"1. Extracted source records from underlying fact and dimension tables.\n"
-            f"2. Filtered out soft-deleted customer entities (is_deleted = false).\n"
-            f"3. Applied certified aggregation formula defined in semantic_layer.yaml.\n"
-            f"4. Grouped and projected along requested dimensional coordinates."
-        )
+        node = self.trace(column, sql)
+        if not node.available:
+            return f"Mathematical Lineage Audit for [{column}]: lineage unavailable."
+        return f"Mathematical Lineage Audit for [{column}]:\nExpression: {node.expression}"

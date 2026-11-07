@@ -195,7 +195,7 @@ metrics:
         on: "order_items.order_id = orders.order_id"
     calculation: "SUM(order_items.price)"
     filter: "orders.order_status != 'canceled'"
-    dimensions: [customer_state, product_category_name, payment_type, order_status, seller_state]
+    dimensions: [customer_state, product_category_name, order_status, seller_state]
     synonyms: ["gmv", "gross merchandise value", "total sales", "revenue", "total revenue", "sales"]
 
   - name: total_orders
@@ -241,8 +241,8 @@ metrics:
         on: "orders.customer_id = customers.customer_id"
     calculation: "AVG(order_reviews.review_score)"
     filter: "orders.order_status = 'delivered'"
-    dimensions: [customer_state, product_category_name, seller_state]
-    synonyms: ["csat", "review score", "average review", "rating", "star rating", "satisfaction", "nps proxy", "customer satisfaction"]
+    dimensions: [customer_state]
+    synonyms: ["csat", "review score", "average review", "rating", "star rating", "satisfaction", "customer satisfaction"]
 
   - name: total_payment_value
     label: "Total Payment Value"
@@ -266,6 +266,6 @@ metrics:
         WHEN orders.order_delivered_customer_date > orders.order_estimated_delivery_date THEN 1.0
         ELSE 0.0
       END) / NULLIF(COUNT(DISTINCT orders.order_id), 0) * 100.0
-    filter: "orders.order_status = 'delivered' AND orders.order_delivered_customer_date IS NOT NULL"
+    filter: "orders.order_status = 'delivered' AND orders.order_delivered_customer_date IS NOT NULL AND orders.order_estimated_delivery_date IS NOT NULL"
     dimensions: [customer_state]
-    synonyms: ["delivery delay rate", "late delivery", "late delivery rate", "on time delivery", "otd", "delivery performance"]
+    synonyms: ["delivery delay rate", "late delivery", "late delivery rate", "delivery performance"]

@@ -69,13 +69,19 @@ class SelfHealingExecutionAgent:
         col_match = re.search(r'column ["\']?(\w+)["\']? not found', error_msg, re.IGNORECASE)
         if col_match:
             missing_col = col_match.group(1).lower()
-            # Common column name replacements
+            # Common column name replacements for Olist E-Commerce schema
             replacements = {
-                "mrr": "mrr_amount_usd",
-                "price": "base_price_usd",
-                "name": "company_name",
-                "tier": "company_tier",
-                "amount": "total_amount_usd",
+                "review": "review_score",
+                "score": "review_score",
+                "rating": "review_score",
+                "freight": "freight_value",
+                "shipping": "freight_value",
+                "category": "product_category_name",
+                "state": "customer_state",
+                "city": "customer_city",
+                "payment": "payment_value",
+                "value": "payment_value",
+                "status": "order_status",
             }
             if missing_col in replacements:
                 repaired = re.sub(rf'\b{missing_col}\b', replacements[missing_col], repaired, flags=re.IGNORECASE)

@@ -28,14 +28,10 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Seed synthetic B2B SaaS Lakehouse
-        run: |
-          python scripts/seed_dataset.py
-
       - name: Run Pytest Test Suite
         run: |
           pytest tests/ -v
 
-      - name: Run Spider 2.0-Style Benchmark Harness
+      - name: Verify guided showcase metrics
         run: |
-          python eval/benchmark_runner.py
+          python eval/showcase_runner.py

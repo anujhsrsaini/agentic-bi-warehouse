@@ -2,9 +2,9 @@
 
 Translates high-level business metric queries into deterministic, canonical SQL:
 - Pulls certified formulas from SemanticLayerConfig
-- Resolves minimal safe join paths to requested dimensions
+- Resolves many-to-one join paths to requested dimensions
 - Injects hygiene filters (e.g., is_deleted = false)
-- Prevents Cartesian join explosions and Fan-Out traps
+- Rejects reverse joins that could multiply the metric's base rows
 """
 
 from __future__ import annotations
@@ -51,6 +51,10 @@ class SemanticQueryResolver:
         group_by_exprs: list[str] = []
 
         for dim_name in target_dims:
+            if dim_name not in metric.dimensions:
+                raise SemanticResolutionError(
+                    f"Dimension '{dim_name}' is not supported for metric '{metric_name}'."
+                )
             dim_loc = self._find_dimension(dim_name)
             if not dim_loc:
                 raise SemanticResolutionError(f"Dimension '{dim_name}' not found in semantic catalog.")
@@ -71,7 +75,7 @@ class SemanticQueryResolver:
                     joins_needed.append(join_result)
 
         # Also check if any filter references an external table
-        for f in filters or []:
+        for f in ([metric.filter] if metric.filter else []) + (filters or []):
             for model in self.config.models:
                 if model.table != base_model.table and f"{model.table}." in f:
                     join_result = self._resolve_join(base_model, model.table)
@@ -90,10 +94,7 @@ class SemanticQueryResolver:
             for f in filters:
                 where_clauses.append(f"({f})")
 
-        # Automatically inject is_deleted = false hygiene if dim_customers is joined
-        joined_tables = [base_model.table] + [j[0] for j in joins_needed]
-        if "dim_customers" in joined_tables:
-            where_clauses.append("dim_customers.is_deleted = false")
+        # Table hygiene predicates are governed via model filters in semantic_layer.yaml
 
         # Build SQL Parts
         select_parts = []
@@ -140,16 +141,10 @@ class SemanticQueryResolver:
         # 1. Direct FK on base model → target
         for fk in base_model.foreign_keys:
             ref_tbl, ref_col = fk.references.split(".")
-            if ref_tbl == target_table:
+            if ref_tbl == target_table and fk.relationship in ("many_to_one", "one_to_one"):
                 return [(target_table, f"{base_model.table}.{fk.fk} = {target_table}.{ref_col}", "LEFT")]
 
-        # 2. Reverse FK on target → base
-        target_model = self.config.get_model(target_table)
-        if target_model:
-            for fk in target_model.foreign_keys:
-                ref_tbl, ref_col = fk.references.split(".")
-                if ref_tbl == base_model.table:
-                    return [(target_table, f"{target_model.table}.{fk.fk} = {base_model.table}.{ref_col}", "LEFT")]
+        # Reverse foreign keys can multiply base rows, so do not use them for metrics.
 
         # 3. Two-hop BFS: base → intermediate → target
         for model in self.config.models:
@@ -159,15 +154,9 @@ class SemanticQueryResolver:
             hop1 = None
             for fk in base_model.foreign_keys:
                 ref_tbl, ref_col = fk.references.split(".")
-                if ref_tbl == model.table:
+                if ref_tbl == model.table and fk.relationship in ("many_to_one", "one_to_one"):
                     hop1 = (model.table, f"{base_model.table}.{fk.fk} = {model.table}.{ref_col}", "LEFT")
                     break
-            if not hop1:
-                for fk in model.foreign_keys:
-                    ref_tbl, ref_col = fk.references.split(".")
-                    if ref_tbl == base_model.table:
-                        hop1 = (model.table, f"{model.table}.{fk.fk} = {base_model.table}.{ref_col}", "LEFT")
-                        break
             if not hop1:
                 continue
 
@@ -175,15 +164,9 @@ class SemanticQueryResolver:
             hop2 = None
             for fk in model.foreign_keys:
                 ref_tbl, ref_col = fk.references.split(".")
-                if ref_tbl == target_table:
+                if ref_tbl == target_table and fk.relationship in ("many_to_one", "one_to_one"):
                     hop2 = (target_table, f"{model.table}.{fk.fk} = {target_table}.{ref_col}", "LEFT")
                     break
-            if not hop2 and target_model:
-                for fk in target_model.foreign_keys:
-                    ref_tbl, ref_col = fk.references.split(".")
-                    if ref_tbl == model.table:
-                        hop2 = (target_table, f"{target_model.table}.{fk.fk} = {model.table}.{ref_col}", "LEFT")
-                        break
             if hop1 and hop2:
                 return [hop1, hop2]
 

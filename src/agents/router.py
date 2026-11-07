@@ -66,25 +66,37 @@ class IntentRouterAgent:
 
     def _extract_metric_name(self, text: str) -> str | None:
         """Extract certified metric name from text or synonyms."""
+        # Prefer the most specific whole phrase: "freight to GMV" must not be
+        # mistaken for the shorter "GMV" metric. Word boundaries also avoid
+        # matches inside unrelated words.
+        matches = []
         for metric in self.semantic_config.metrics:
-            if metric.name in text:
-                return metric.name
-            for syn in metric.synonyms:
-                if syn in text:
-                    return metric.name
-        return None
+            for phrase in (metric.name, *metric.synonyms):
+                if re.search(r"(?<!\w)" + re.escape(phrase.lower()) + r"(?!\w)", text):
+                    matches.append((len(phrase), metric.name))
+        return max(matches, default=(0, None), key=lambda match: match[0])[1]
 
     def _extract_dimensions(self, text: str) -> list[str]:
         """Extract requested grouping dimensions from the question text."""
+        # A filter ("in Rio") or part of a metric name ("payment value")
+        # does not request a grouping. Only interpret explicit grouping text.
+        grouping = re.search(r"\b(?:by|per|for each|grouped by|breakdown by)\b\s+(.+)", text)
+        if not grouping:
+            return []
+        group_text = grouping.group(1)
+
+        def has(phrase: str) -> bool:
+            return bool(re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", group_text))
+
         dims = []
-        if any(w in text for w in ["state", "region", "sp", "rj", "mg", "rs", "pr"]):
+        if any(has(w) for w in ["state", "region"]):
             dims.append("customer_state")
-        if any(w in text for w in ["category", "product category", "product type"]):
+        if any(has(w) for w in ["category", "product category", "product type"]):
             dims.append("product_category_name")
-        if any(w in text for w in ["payment", "payment type", "payment method"]):
+        if any(has(w) for w in ["payment", "payment type", "payment method"]):
             dims.append("payment_type")
-        if any(w in text for w in ["seller", "seller state", "seller region"]):
+        if any(has(w) for w in ["seller", "seller state", "seller region"]):
             dims.append("seller_state")
-        if any(w in text for w in ["status", "order status"]):
+        if any(has(w) for w in ["status", "order status"]):
             dims.append("order_status")
         return dims

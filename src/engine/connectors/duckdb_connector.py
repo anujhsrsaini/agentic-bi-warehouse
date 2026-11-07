@@ -43,6 +43,10 @@ class DuckDBConnector(BaseWarehouseConnector):
         self.preload_seed = preload_seed
         self._conn: duckdb.DuckDBPyConnection | None = None
 
+    def is_connected(self) -> bool:
+        """Check if connected to DuckDB."""
+        return self._conn is not None
+
     def connect(self) -> None:
         """Connect to DuckDB, load seed tables, and lock configuration."""
         if self._conn is not None:
@@ -164,14 +168,17 @@ class DuckDBConnector(BaseWarehouseConnector):
 
         start_time = time.perf_counter()
         try:
-            arrow_res = self._conn.execute(exec_sql)
-            if hasattr(arrow_res, "to_arrow_table"):
-                arrow_table = arrow_res.to_arrow_table()
-            elif hasattr(arrow_res, "arrow"):
-                reader = arrow_res.arrow()
-                arrow_table = reader.read_all() if hasattr(reader, "read_all") else reader
+            if hasattr(self._conn, "sql"):
+                arrow_table = self._conn.sql(exec_sql).to_arrow_table()
             else:
-                arrow_table = pa.Table.from_batches([arrow_res.fetch_arrow_table()])
+                arrow_res = self._conn.execute(exec_sql)
+                if hasattr(arrow_res, "to_arrow_table"):
+                    arrow_table = arrow_res.to_arrow_table()
+                elif hasattr(arrow_res, "arrow"):
+                    reader = arrow_res.arrow()
+                    arrow_table = reader.read_all() if hasattr(reader, "read_all") else reader
+                else:
+                    arrow_table = pa.Table.from_batches([arrow_res.fetch_arrow_table()])
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
             rows_returned = len(arrow_table)

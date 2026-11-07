@@ -58,25 +58,24 @@ class MetricAttributionEngine:
         correlation_note = ""
         if highest_late_state == lowest_score_state:
             correlation_note = (
-                f" Notably, {highest_late_state} also has the highest late delivery rate ({highest_late_pct:.1f}%), "
-                "suggesting delivery delays are the primary driver of CSAT degradation in this state."
+                f" {highest_late_state} also has the highest late delivery rate ({highest_late_pct:.1f}%). "
+                "This descriptive overlap does not establish a cause."
             )
         else:
             correlation_note = (
                 f" {highest_late_state} has the highest late delivery rate ({highest_late_pct:.1f}%); "
-                f"however, {lowest_score_state} leads on low review scores, "
-                "indicating potential product quality or fulfillment issues beyond logistics."
+                f"while {lowest_score_state} has the lowest review score. "
+                "These observations do not establish a cause."
             )
 
         summary_narrative = (
-            f"Diagnostic Root-Cause Analysis — Review Score & Delivery Performance:\n"
+            f"Descriptive comparison — Review Score & Delivery Performance:\n"
             f"1. **Lowest CSAT State**: {lowest_score_state} exhibited the lowest average review score "
             f"at **{lowest_score_val:.2f}/5.0**.{correlation_note}\n"
             f"2. **Late Delivery Leader**: {highest_late_state} has the highest late delivery rate at "
             f"**{highest_late_pct:.1f}%** of delivered orders.\n"
             f"3. **Revenue Concentration**: {highest_gmv_state} accounts for **{gmv_concentration_pct}%** "
-            f"of total GMV ({highest_gmv_orders:,} orders), making it the highest-priority market "
-            f"for logistics and CSAT improvement investment."
+            f"of total GMV ({highest_gmv_orders:,} orders)."
         )
 
         waterfall_data = [

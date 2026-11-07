@@ -42,8 +42,10 @@ class VisualCanvasAgent:
         # Check if single scalar metric
         if n_rows == 1 and len(cols) == 1:
             val = rows[0][metric_col]
-            formatted_val = f"${val:,.2f}" if "arr" in metric_col or "mrr" in metric_col or "revenue" in metric_col else f"{val:,.0f}"
-            return f"**{metric_col.upper()}**: Current value is **{formatted_val}** across all active accounts."
+            if val is None:
+                return f"No value is available for **{metric_col}** with the selected criteria."
+            formatted_val = f"{val:,.2f}" if isinstance(val, float) else str(val)
+            return f"**{metric_col.upper()}**: **{formatted_val}** for the selected criteria."
 
         # Grouped summary
         dim_col = cols[0]
@@ -51,7 +53,7 @@ class VisualCanvasAgent:
         top_dim = top_row[dim_col]
         top_val = top_row[metric_col]
 
-        formatted_val = f"${top_val:,.2f}" if "arr" in metric_col or "mrr" in metric_col else f"{top_val:,}"
+        formatted_val = f"{top_val:,.2f}" if isinstance(top_val, float) else str(top_val) if top_val is not None else "unavailable"
 
         narrative = (
             f"Analysis of **{metric_col.upper()}** grouped by **{dim_col}** across {n_rows} segments:\n"
@@ -59,7 +61,9 @@ class VisualCanvasAgent:
         )
         if n_rows > 1:
             second_row = rows[1]
-            narrative += f"- **Runner-Up**: **{second_row[dim_col]}** follows with **${second_row[metric_col]:,.2f}**.\n"
+            second_val = second_row[metric_col]
+            formatted_second = f"{second_val:,.2f}" if isinstance(second_val, float) else str(second_val) if second_val is not None else "unavailable"
+            narrative += f"- **Runner-Up**: **{second_row[dim_col]}** follows with **{formatted_second}**.\n"
 
         return narrative.strip()
 

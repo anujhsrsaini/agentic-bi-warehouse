@@ -7,7 +7,7 @@ Implements a 7-stage deterministic AST inspection pipeline:
 4. Forbidden Function & Table-Generator Blocker (blocks read_csv, read_parquet, copy, install)
 5. Table Whitelist Verification (against registered catalog/views & CTEs)
 6. Cartesian Join Detection (rejects unconstrained CROSS JOINs)
-7. AST Mutation (enforces mandatory LIMIT <= 1000 clamping and PII masking)
+7. Sensitive-column and wildcard rejection, and outer LIMIT clamping
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ class ASTSecurityValidator:
         return {
             "max_limit": 1000,
             "whitelisted_tables": [
-                "dim_customers", "dim_plans", "fct_subscriptions", "fct_invoices", "fct_mrr_movements"
+                "orders", "order_items", "customers", "order_payments", "order_reviews",
+                "products", "sellers", "category_translation"
             ],
             "forbidden_functions": [
                 "read_parquet", "read_csv", "read_json", "read_blob", "glob", "httpfs",
@@ -98,6 +99,7 @@ class ASTSecurityValidator:
             "copy", "install", "load", "shell", "exec", "pg_sleep", "system$wait",
             "readcsv", "readparquet", "readjson", "readblob"
         }
+        forbidden_funcs.update(str(name).lower() for name in self.policy.get("forbidden_functions", []))
         for node in root.walk():
             node_key = getattr(node, "key", "").lower()
             node_name = getattr(node, "name", "").lower()
@@ -146,9 +148,34 @@ class ASTSecurityValidator:
                     "CARTESIAN_JOIN_VIOLATION"
                 )
 
-        # Stage 7: Limit Clamping & Mutation
+        # Stage 7: Reject sensitive references in any expression (including
+        # filters, joins, and nested queries). Blocking only output projections
+        # would still allow an attacker to infer values through predicates.
+        sensitive_cols = {str(name).casefold() for name in self.policy.get("sensitive_columns", [])}
+        if not settings.customer_identifier_protection:
+            sensitive_cols.discard("customer_unique_id")
+        for col in root.find_all(exp.Column):
+            if col.name.casefold() in sensitive_cols:
+                raise SecurityViolationError(
+                    f"Access to sensitive column '{col.name}' is not permitted.",
+                    "SENSITIVE_COLUMN_ACCESS",
+                )
+
+        # The validator has no trusted schema with which to expand a wildcard.
+        # Reject it even in CTEs or expressions; COUNT(*) only counts rows and
+        # does not project a column, so it remains useful for analytics.
+        for star in root.find_all(exp.Star):
+            if isinstance(star.parent, exp.Count) and star.parent.this is star:
+                continue
+            raise SecurityViolationError(
+                "Wildcard projections are not permitted; select approved columns explicitly.",
+                "WILDCARD_PROJECTION",
+            )
+
+        # Apply the limit to the outer query. A limit inside a CTE or subquery
+        # does not bound the final result, and must not satisfy this check.
         max_limit = self.policy.get("max_limit", 1000)
-        limit_node = root.find(exp.Limit)
+        limit_node = root.args.get("limit")
 
         if limit_node is None:
             # Inject LIMIT 1000
@@ -161,15 +188,6 @@ class ASTSecurityValidator:
                     limit_node.set("expression", exp.Literal.number(max_limit))
             except Exception:
                 limit_node.set("expression", exp.Literal.number(max_limit))
-
-        # Check for sensitive PII column redaction
-        sensitive_cols = set(self.policy.get("sensitive_columns", []))
-        for col in root.find_all(exp.Column):
-            if col.name.lower() in sensitive_cols:
-                # Mask with SHA256 expression
-                parent = col.parent
-                if isinstance(parent, exp.Select):
-                    pass # in select list
 
         sanitized_sql = root.sql(dialect=dialect)
         validation_time_us = (time.perf_counter() - start_time) * 1_000_000.0

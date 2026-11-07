@@ -20,7 +20,7 @@ dependencies = [
     "sqlglot>=25.0.0",
     "rich>=13.7.0",
     "pyyaml>=6.0.0",
-    "mcp>=1.2.0",
+    "mcp>=1.2.0,<2",
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     "langchain-core>=0.3.0",
@@ -28,6 +28,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "streamlit>=1.40,<2",
+]
 postgres = [
     "psycopg[binary]>=3.1.0",
     "adbc-driver-postgresql>=0.10.0",
@@ -49,7 +52,7 @@ dev = [
     "ruff>=0.4.0",
 ]
 all = [
-    "agentic-bi-warehouse[postgres,snowflake,bigquery,clickhouse,dev]"
+    "agentic-bi-warehouse[postgres,snowflake,bigquery,clickhouse,dev,web]"
 ]
 
 [project.scripts]

@@ -35,6 +35,7 @@ class GraphState(TypedDict, total=False):
     lineage_ascii: str
     chart_spec: dict[str, Any] | None
     diagnostic_attribution: dict[str, Any] | None
+    connector: Any  # BaseWarehouseConnector | None
     _next: str | None
 
 

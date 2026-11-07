@@ -62,7 +62,11 @@ def build_graph():
     return _COMPILED
 
 
-def run_agentic_bi(question: str, session_id: str = "default-session") -> AgenticBIState:
+def run_agentic_bi(
+    question: str,
+    session_id: str = "default-session",
+    connector: Any | None = None,
+) -> AgenticBIState:
     if settings.engine.lower() == "legacy":
         # Local import to avoid cycles; legacy behavior preserved.
         from src.agents.router import IntentRouterAgent
@@ -77,7 +81,7 @@ def run_agentic_bi(question: str, session_id: str = "default-session") -> Agenti
         if state.intent == UserIntent.CLARIFICATION_REQUIRED:
             return state
         state = SQLGeneratorAgent().generate(state)
-        state = SelfHealingExecutionAgent().execute(state)
+        state = SelfHealingExecutionAgent(connector=connector).execute(state)
         if state.execution_error or not state.execution_result:
             return state
         if state.execution_result.column_names:
@@ -98,5 +102,7 @@ def run_agentic_bi(question: str, session_id: str = "default-session") -> Agenti
 
     graph = build_graph()
     init = state_to_graph(AgenticBIState(question=question, session_id=session_id))
+    if connector is not None:
+        init["connector"] = connector
     out = graph.invoke(init)
     return graph_to_state(out)

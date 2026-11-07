@@ -135,7 +135,7 @@ def generate_sql_node(g: GraphState) -> GraphState:
 def validate_execute_repair_node(g: GraphState) -> GraphState:
     state = graph_to_state(g)
     validator = ASTSecurityValidator()
-    session = WarehouseSession()
+    session = WarehouseSession(connector=g.get("connector"))
     conn = session.get_connector()
     max_retries = int(settings.llm_max_retries) + 1 if llm_enabled() else 3
     max_retries = max(1, min(max_retries, 5))

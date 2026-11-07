@@ -1,7 +1,7 @@
 """Performance and Latency Benchmark Script.
 
 Measures cold startup, P50/P95/P99 latency, and queries/sec throughput
-over the 115,005 row in-memory DuckDB lakehouse.
+over the 550,761 row in-memory DuckDB lakehouse (Olist Brazilian E-Commerce dataset).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from src.agents.orchestrator import AgenticBIOrchestrator
+from src.core.config import settings
 
 console = Console()
 
@@ -26,19 +27,23 @@ console = Console()
 def run_latency_benchmark(iterations: int = 100):
     console.print(f"\n[bold cyan]⚡ Running Performance Benchmark ({iterations} iterations)...[/bold cyan]")
     
+    # Force legacy deterministic mode to benchmark DuckDB OLAP engine directly
+    settings.engine = "legacy"
+    settings.warehouse_type = "duckdb"
+
     # 1. Measure Cold Start
     start_cold = time.perf_counter()
     orchestrator = AgenticBIOrchestrator()
-    orchestrator.process_query("What is our current ARR?")
+    orchestrator.process_query("What is our total GMV?")
     cold_start_ms = (time.perf_counter() - start_cold) * 1000.0
 
     # 2. Measure Steady-State Query Latency
     queries = [
-        "What is our ARR by industry?",
-        "What is our gross cash collected by country?",
-        "What is our ARR for Enterprise in US?",
-        "What is our current Monthly Recurring Revenue?",
-        "How many active customers do we have?",
+        "What is our total GMV?",
+        "What is our GMV by customer state?",
+        "What is our average order value?",
+        "What is our freight to GMV ratio?",
+        "How many total delivered orders do we have?",
     ]
 
     latencies_ms = []

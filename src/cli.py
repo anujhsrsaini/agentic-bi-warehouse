@@ -1,172 +1,149 @@
-"""Interactive Rich Terminal Cockpit — Governed DuckDB Analytics Agent (Olist Edition)."""
+"""A small, repeatable offline tour of the Olist analytics project.
 
+The tour deliberately accepts only known questions: its local examples do not
+call an LLM or silently substitute a different answer for an unknown request.
+"""
 from __future__ import annotations
 
-import sys
+from pathlib import Path
+
+import sqlglot
+import yaml
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.syntax import Syntax
 from rich.prompt import Prompt
+from rich.syntax import Syntax
+from rich.table import Table
+from sqlglot import exp
 
-from src.agents.orchestrator import AgenticBIOrchestrator
 from src.core.exceptions import SecurityViolationError
+from src.engine.connectors.duckdb_connector import DuckDBConnector
 from src.security.ast_validator import ASTSecurityValidator
+from src.semantic.loader import SemanticLayerLoader
+from src.semantic.resolver import SemanticQueryResolver
 
 console = Console()
-orchestrator = AgenticBIOrchestrator()
-security_validator = ASTSecurityValidator()
+
+# Each example has one deliberately supported metric/dimension combination.
+EXAMPLES = {
+    "1": ("What is GMV by customer state?", "gmv", ["customer_state"]),
+    "2": ("What is the late delivery rate by customer state?", "delivery_delay_rate", ["customer_state"]),
+    "3": ("How many orders were delivered?", "total_orders", []),
+    "4": ("What is average order value?", "aov", []),
+    "5": ("What is the average review score?", "avg_review_score", []),
+}
 
 
-def render_banner() -> None:
-    banner = """[bold cyan]
-   █████╗  ██████╗ ███████╗███╗   ██╗████████╗██╗ ██████╗     ██████╗ ██╗
-  ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██║██╔════╝     ██╔══██╗██║
-  ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ██║██║  ███╗    ██████╔╝██║
-  ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ██║██║   ██║    ██╔══██╗██║
-  ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ██║╚██████╔╝    ██████╔╝██║
-  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝ ╚═════╝     ╚═════╝ ╚═╝
-    [/bold cyan]
-[bold green]Governed DuckDB Analytics Agent & Poly-Warehouse BI Engine[/bold green]
-[dim]Sub-15ms Vectorized OLAP • SQLGlot AST Guardrails • FastMCP Native • 550k Rows Olist E-Commerce[/dim]
-    """
-    console.print(Panel(banner, border_style="cyan"))
+def _normalize(question: str) -> str:
+    return " ".join(question.lower().strip().rstrip("?.!").split())
+
+
+def _caveats(metric_name: str) -> list[str]:
+    path = Path(__file__).resolve().parent.parent / "config" / "showcase_caveats.yaml"
+    with path.open(encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return list(data.get("all", [])) + list(data.get("metrics", {}).get(metric_name, []))
+
+
+def _source_tables(sql: str) -> list[str]:
+    """Get referenced physical table names from the SQL that was executed."""
+    root = sqlglot.parse_one(sql, read="duckdb")
+    ctes = {cte.alias.lower() for cte in root.find_all(exp.CTE)}
+    return sorted({table.name for table in root.find_all(exp.Table) if table.name.lower() not in ctes})
 
 
 def execute_and_render(question: str) -> None:
-    console.print(f"\n[bold yellow]❓ Question:[/bold yellow] [bold white]{question}[/bold white]")
-
-    with console.status("[bold green]Running multi-agent cognitive pipeline...[/bold green]", spinner="dots"):
-        state = orchestrator.process_query(question)
-
-    if state.clarification_prompt:
-        console.print(Panel(
-            f"[bold yellow]⚠️ Disambiguation Required:[/bold yellow]\n{state.clarification_prompt}\n\n"
-            + "\n".join(f"[cyan]{opt}[/cyan]" for opt in state.clarification_options),
-            title="[bold yellow]Triage Agent[/bold yellow]",
-            border_style="yellow"
-        ))
+    normalized = _normalize(question)
+    console.print(f"\n[bold]Question:[/bold] {question}")
+    if normalized in {"revenue", "show revenue", "what is revenue", "what is our revenue"}:
+        console.print(Panel("Revenue could mean item sales (GMV) or payments including freight. "
+                            "Which definition do you want? Try the GMV example.", title="Clarification needed"))
+        return
+    example = next((item for item in EXAMPLES.values() if _normalize(item[0]) == normalized), None)
+    if example is None:
+        console.print("[yellow]This offline demo only recognizes the listed example questions. "
+                      "Please choose one from the menu.[/yellow]")
         return
 
-    if state.execution_error:
-        console.print(Panel(
-            f"[bold red]❌ Execution Error:[/bold red]\n{state.execution_error}\n\n[dim]SQL: {state.validated_sql}[/dim]",
-            title="[bold red]Error[/bold red]",
-            border_style="red"
-        ))
+    _, metric_name, dimensions = example
+    metric = SemanticLayerLoader().load().get_metric(metric_name)
+    if metric is None:
+        console.print(f"[red]Metric configuration not found: {metric_name}[/red]")
         return
+    connector = DuckDBConnector(data_dir=Path(__file__).resolve().parent.parent / "data" / "seed")
+    try:
+        sql = SemanticQueryResolver().resolve_metric_query(metric_name, dimensions=dimensions)
+        sql, _ = ASTSecurityValidator().validate_and_sanitize(sql, dialect="duckdb")
+        result = connector.execute_query(sql)
+    except Exception as exc:
+        console.print(f"[red]Unable to run this example: {exc}[/red]")
+        return
+    finally:
+        connector.disconnect()
 
-    # Render SQL & Timing
-    res = state.execution_result
-    timing_str = f"⚡ Execution: {res.execution_time_ms:.2f} ms | AST Audit: {state.validation_time_us:.1f} μs | Rows: {len(res.data):,}"
-    console.print(Panel(
-        Syntax(state.validated_sql, "sql", theme="monokai", line_numbers=True),
-        title=f"[bold green]Verified Governed SQL[/bold green] ({timing_str})",
-        border_style="green"
-    ))
-
-    # Render Executive Narrative
-    if state.summary_narrative:
-        console.print(Panel(
-            f"[bold white]{state.summary_narrative}[/bold white]",
-            title="[bold blue]🧠 Executive Insights[/bold blue]",
-            border_style="blue"
-        ))
-
-    # Render Table
-    if res and len(res.data) > 0:
-        table = Table(title="[bold]Analytical Results[/bold]", border_style="dim")
-        for col in res.column_names:
-            table.add_column(col.replace("_", " ").title(), style="cyan")
-
-        rows = res.to_pylist()[:15]
-        for row in rows:
-            formatted_cells = []
-            for col in res.column_names:
-                v = row[col]
-                if isinstance(v, float):
-                    # Format monetary columns with BRL-style prefix
-                    if any(k in col for k in ["gmv", "price", "payment", "freight", "value", "revenue"]):
-                        cell = f"R$ {v:,.2f}"
-                    else:
-                        cell = f"{v:,.2f}"
-                elif isinstance(v, int):
-                    cell = f"{v:,}"
-                else:
-                    cell = str(v)
-                formatted_cells.append(cell)
-            table.add_row(*formatted_cells)
-        console.print(table)
-        if len(res.data) > 15:
-            console.print(f"[dim]... and {len(res.data) - 15} more rows.[/dim]")
-
-    # Render Lineage if available
-    if state.lineage_ascii:
-        console.print(Panel(
-            f"[dim]{state.lineage_ascii}[/dim]",
-            title="[bold magenta]📐 Column-Level Lineage Trace[/bold magenta]",
-            border_style="magenta"
-        ))
+    console.print(Panel("Defined metric | local DuckDB | historical Olist data", title="Answer context"))
+    table = Table(title=metric.label)
+    for column in result.column_names:
+        table.add_column(column.replace("_", " ").title())
+    rows = result.to_pylist()
+    for row in rows[:15]:
+        values = []
+        for column in result.column_names:
+            value = row[column]
+            values.append(f"{value:,.2f}" if isinstance(value, float) else str(value))
+        table.add_row(*values)
+    console.print(table)
+    if len(rows) > 15:
+        console.print(f"Showing 15 of {len(rows)} rows.")
+    console.print(f"[bold]Definition:[/bold] {metric.description}")
+    console.print(f"[bold]Calculation:[/bold] {metric.calculation}")
+    console.print(f"[bold]Filter:[/bold] {metric.filter or 'None'}")
+    console.print(f"[bold]Sources in executed SQL:[/bold] {', '.join(_source_tables(sql)) or 'Unknown'}")
+    for caveat in _caveats(metric_name):
+        console.print(f"[yellow]Note:[/yellow] {caveat}")
+    console.print(Panel(Syntax(sql, "sql", theme="monokai", word_wrap=True), title="Executed SQL"))
 
 
 def run_adversarial_test() -> None:
-    console.print("\n[bold red]🛡️ Running Adversarial Security Test Suite...[/bold red]")
-    attacks = [
-        ("DROP TABLE orders;", "Mutating DDL Drop"),
-        ("SELECT 1; DROP TABLE orders;", "Multi-Statement Stacking"),
-        ("SELECT * FROM read_csv('/etc/passwd');", "Path Traversal Arbitrary Read"),
-        ("SELECT * FROM read_parquet('s3://exfiltrate/data.parquet');", "Out-of-Bounds Cloud Exfiltration"),
-        ("SELECT * FROM orders CROSS JOIN order_items;", "Unconstrained Cartesian Join DoS"),
-        ("SELECT * FROM unauthorized_internal_payroll;", "Unregistered Table Access"),
-    ]
-
-    for atk, label in attacks:
-        try:
-            security_validator.validate_and_sanitize(atk)
-            console.print(f"[bold red]❌ FAILED: {label} was not blocked![/bold red]")
-        except SecurityViolationError as e:
-            console.print(f"[bold green]✓ BLOCKED:[/bold green] [dim]{label}[/dim] ──► [yellow]{e}[/yellow]")
+    """Show a representative blocked query without attempting execution."""
+    query = "DROP TABLE orders;"
+    console.print(f"\nQuery submitted to validator: {query}")
+    try:
+        ASTSecurityValidator().validate_and_sanitize(query)
+    except SecurityViolationError as exc:
+        console.print(f"[green]Blocked before execution:[/green] {exc}")
+    else:
+        console.print("[red]The validator did not block this query.[/red]")
 
 
 def main() -> None:
-    render_banner()
+    console.print(Panel(
+        "Ask a business question, see a metric and inspect its SQL.\n"
+        "Offline guided mode: no LLM, API key or network connection is used.\n"
+        "The sample is historical Olist e-commerce data, not current business data.",
+        title="Analytics assistant: local showcase",
+    ))
     while True:
-        console.print("\n[bold cyan]Select an Analytical Action — Olist Brazilian E-Commerce:[/bold cyan]")
-        console.print("  [1] 📊 GMV by Brazilian customer state")
-        console.print("  [2] ⭐ Average Review Score (CSAT) by product category")
-        console.print("  [3] 🔍 Diagnostic Root-Cause: Why did review scores drop?")
-        console.print("  [4] 🎯 Entity Grounding: GMV for Credit Card payments in SP")
-        console.print("  [5] ⚠️  Ambiguity Test: Show revenue (Watch Triage Agent ask clarification)")
-        console.print("  [6] 🚚 Late Delivery Rate by state")
-        console.print("  [7] 💳 Payment method breakdown")
-        console.print("  [8] 💬 Ask Custom Analytical Question")
-        console.print("  [9] 🛡️  Run Adversarial Security & Sandbox Test")
-        console.print("  [0] 🚪 Exit")
-
-        choice = Prompt.ask("\nEnter choice", default="1")
+        console.print("\n[bold]Choose an example[/bold]")
+        for key, (question, _, _) in EXAMPLES.items():
+            console.print(f"  [{key}] {question}")
+        console.print("  [6] Show revenue (clarification example)")
+        console.print("  [7] Try an unsafe query (guardrail example)")
+        console.print("  [8] Type a supported example question")
+        console.print("  [0] Exit")
+        choice = Prompt.ask("Choose", default="1")
         if choice == "0":
-            console.print("[green]Goodbye![/green]")
             break
-        elif choice == "1":
-            execute_and_render("What is our GMV by customer state?")
-        elif choice == "2":
-            execute_and_render("What is the average review score by product category?")
-        elif choice == "3":
-            execute_and_render("Why did review scores drop?")
-        elif choice == "4":
-            execute_and_render("What is our GMV for credit card payments in SP?")
-        elif choice == "5":
-            execute_and_render("Show revenue")
+        if choice in EXAMPLES:
+            execute_and_render(EXAMPLES[choice][0])
         elif choice == "6":
-            execute_and_render("What is our delivery delay rate by state?")
+            execute_and_render("Show revenue")
         elif choice == "7":
-            execute_and_render("What is the payment method breakdown?")
-        elif choice == "8":
-            q = Prompt.ask("\nEnter your analytical question")
-            if q.strip():
-                execute_and_render(q)
-        elif choice == "9":
             run_adversarial_test()
+        elif choice == "8":
+            execute_and_render(Prompt.ask("Question"))
+        else:
+            console.print("Please choose a number from the menu.")
 
 
 if __name__ == "__main__":

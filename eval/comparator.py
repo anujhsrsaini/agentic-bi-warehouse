@@ -21,7 +21,7 @@ class ResultComparator:
 
     def compare_tables(self, cand_table: pa.Table, gold_table: pa.Table) -> bool:
         """Compare candidate and gold PyArrow tables."""
-        if len(cand_table) != len(gold_table):
+        if len(cand_table) != len(gold_table) or cand_table.num_columns != gold_table.num_columns:
             return False
 
         if len(cand_table) == 0:

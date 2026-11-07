@@ -1,0 +1,14 @@
+# Notes attached deterministically to the local guided showcase results.
+all:
+  - "Olist is historical sample data from 2016-2018; it does not describe current performance."
+metrics:
+  gmv:
+    - "GMV is item value, excludes freight and canceled orders, and is not the same as payments received."
+  total_orders:
+    - "This counts delivered orders, not every order placed."
+  aov:
+    - "Average order value uses item prices for delivered orders and excludes freight."
+  avg_review_score:
+    - "A 1-5 star review score is not Net Promoter Score (NPS); not every customer leaves a review."
+  delivery_delay_rate:
+    - "Late means delivered after the estimated date; orders without the dates needed for comparison are excluded."

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     query_timeout_ms: int = 30000
     allow_cartesian_joins: bool = False
     redact_pii: bool = True
+    customer_identifier_protection: bool = False
 
     # Cloud Warehouse Credentials (optional)
     postgres_uri: str | None = None
@@ -66,7 +67,11 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="sarvam", description="LLM provider identifier")
     llm_base_url: str = Field(default="https://api.sarvam.ai/v2", description="OpenAI-compatible base URL")
     llm_api_key: str | None = Field(default=None, description="LLM API key (prefer SARVAM_API_KEY env)")
-    sarvam_api_key: str | None = Field(default=None, description="Sarvam API key fallback env: SARVAM_API_KEY")
+    sarvam_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SARVAM_API_KEY", "AGENTIC_BI_SARVAM_API_KEY"),
+        description="Sarvam API key from environment or local .env file",
+    )
     llm_model: str = Field(default="sarvam-105b", description="Default model ID")
     llm_model_router: str | None = Field(default="sarvam-105b")
     llm_model_grounder: str | None = Field(default="sarvam-105b")
