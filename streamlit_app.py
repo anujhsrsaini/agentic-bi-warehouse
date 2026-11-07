@@ -25,6 +25,20 @@ except Exception:
 from src.web_service import GUIDED_QUESTIONS, execute_question
 
 
+@st.cache_resource(show_spinner=False)
+def _warmup_warehouse() -> bool:
+    """Preload in-memory DuckDB tables on worker start to eliminate first-query cold lag."""
+    try:
+        from src.engine.session import WarehouseSession
+        WarehouseSession().get_connector()
+    except Exception:
+        pass
+    return True
+
+
+_warmup_warehouse()
+
+
 def split_analysis(text: str) -> tuple[str, list[str], list[str], str]:
     """Separate a narrative into its takeaway, evidence, caveats and full text."""
     sections = {"takeaway": [], "key points": [], "caveats": []}
@@ -173,8 +187,9 @@ for message in st.session_state.messages:
         else:
             render_assistant_result(message["result"])
 
-typed = st.chat_input("Ask about sales, orders, deliveries, or customers…")
-active_question = selected or typed
+st.caption("💡 *Type or paste your question below and press **Enter** (or click **Send ➔**) to run.*")
+typed = st.chat_input("Ask about sales, orders, deliveries, or customers (press Enter to run)…")
+active_question = (selected or typed or "").strip()
 if active_question:
     # 1. Store and display user message immediately
     st.session_state.messages.append({"role": "user", "content": active_question})
@@ -190,5 +205,5 @@ if active_question:
                     answer = execute_question(active_question, "auto", protection)
             except Exception as exc:
                 answer = {"error": "The question could not be completed. Please try again or select an example."}
-            render_assistant_result(answer)
+        render_assistant_result(answer)
     st.session_state.messages.append({"role": "assistant", "result": answer})
