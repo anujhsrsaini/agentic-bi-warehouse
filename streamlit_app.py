@@ -207,36 +207,42 @@ def render_assistant_result(result: dict) -> None:
 
 st.divider()
 st.markdown("<div class='section-label'>Your analysis</div>", unsafe_allow_html=True)
-if not st.session_state.messages:
-    st.caption("Your results will appear here, with the SQL available to inspect.")
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        if message["role"] == "user":
-            st.write(message["content"])
-        else:
-            render_assistant_result(message["result"])
+chat_container = st.container()
+with chat_container:
+    if not st.session_state.messages:
+        st.caption("Your results will appear here, with the SQL available to inspect.")
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            if message["role"] == "user":
+                st.write(message["content"])
+            else:
+                render_assistant_result(message["result"])
 
 st.caption("💡 *Type or paste your question below and press **Enter** (or click **Send ➔**) to run.*")
 typed = st.chat_input("Ask about sales, orders, deliveries, or customers (press Enter to run)…")
 active_question = (selected or typed or "").strip()
 if active_question:
-    # 1. Store and display user message immediately
+    # 1. Store user message in history
     st.session_state.messages.append({"role": "user", "content": active_question})
-    with st.chat_message("user"):
-        st.write(active_question)
+    with chat_container:
+        with st.chat_message("user"):
+            st.write(active_question)
 
-    # 2. Execute and display assistant response immediately
-    with st.chat_message("assistant"):
-        with st.spinner("Looking into the data…"):
+        # 2. Execute and display assistant response with prominent status
+        with st.chat_message("assistant"):
+            with st.status("🔍 Looking into the data…", expanded=True) as status:
+                st.write("📊 Resolving analytical query and validating security constraints...")
+                try:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message="Arrow output on a DB-API result makes an extra copy.*", category=UserWarning)
+                        answer = execute_question(active_question, "auto", protection)
+                except Exception as exc:
+                    answer = {"error": f"The question could not be completed: {exc}"}
+                status.update(label="✅ Analysis complete!", state="complete", expanded=False)
             try:
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", message="Arrow output on a DB-API result makes an extra copy.*", category=UserWarning)
-                    answer = execute_question(active_question, "auto", protection)
+                render_assistant_result(answer)
             except Exception as exc:
-                answer = {"error": f"The question could not be completed: {exc}"}
-        try:
-            render_assistant_result(answer)
-        except Exception as exc:
-            st.error(f"Display error: {exc}")
+                st.error(f"Display error: {exc}")
     st.session_state.messages.append({"role": "assistant", "result": answer})

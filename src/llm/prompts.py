@@ -18,8 +18,8 @@ def router_prompt(question: str, semantic_metrics: list[dict[str, Any]]) -> list
         "choose CERTIFIED_METRIC, set metric_name='gmv', and extract the dimension into dimensions "
         "(customer_state, product_category_name, payment_type, seller_state, order_status). "
         "Map '-wise' terms to canonical dimensions: 'state wise' -> customer_state, 'category wise' -> product_category_name. "
-        "If a question asks for a calculation the metric alone cannot provide, "
-        "such as new versus repeat customers or cohort retention, use EXPLORATORY_SQL, not CERTIFIED_METRIC. "
+        "If a question asks for date/time filters (e.g. 'last 5 months', 'in 2017') or a calculation the metric alone cannot provide "
+        "(such as new versus repeat customers or cohort retention), use EXPLORATORY_SQL, not CERTIFIED_METRIC. "
         "Do not generate SQL."
     )
     user = json.dumps({"question": question, "certified_metrics": semantic_metrics}, ensure_ascii=False)
@@ -37,6 +37,10 @@ def sql_prompt(question: str, semantic_metrics: list[dict[str, Any]], schema_cat
         "Only select a certified_metric when it answers the entire question; never drop requested components. "
         "When a breakdown is requested (e.g. 'state wise', 'by state', 'category wise'), ensure the dimension is provided in dimensions "
         "(e.g. ['customer_state']) or grouped in the SELECT statement. Never return a single un-grouped total when a breakdown is asked for. "
+        "For relative date filters like 'last N months', 'last 5 months', or 'recent orders' in this historical dataset (2016-2018), "
+        "ALWAYS filter relative to MAX(order_purchase_timestamp), e.g. "
+        "WHERE o.order_purchase_timestamp >= (SELECT MAX(order_purchase_timestamp) - INTERVAL 5 MONTH FROM orders). "
+        "NEVER use CURRENT_DATE or NOW() because the historical dataset ends in October 2018. "
         "For total revenue shares or category percentage of total, use DuckDB window functions like SUM(revenue) OVER () "
         "rather than Cartesian CROSS JOINs. "
         "For new versus repeat Olist customers, ALWAYS join customers c ON o.customer_id = c.customer_id and use "
