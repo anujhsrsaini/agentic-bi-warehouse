@@ -8,6 +8,7 @@ from src.agents.state import AgenticBIState
 from src.cli import EXAMPLES, _caveats, _normalize, _source_tables
 from src.core.config import settings
 from src.engine.connectors.duckdb_connector import DuckDBConnector
+from src.engine.session import WarehouseSession
 from src.llm.factory import llm_enabled
 from src.security.ast_validator import ASTSecurityValidator
 from src.semantic.loader import SemanticLayerLoader
@@ -37,7 +38,7 @@ def execute_question(question: str, mode: str, protect_customer_ids: bool) -> di
             if mode != "ai":
                 raise ValueError("Unknown analytics mode")
             if not llm_enabled():
-                return {"error": "This question needs a Sarvam key in your local .env file and the LangGraph engine. You can still use the example questions."}
+                return {"error": "This question needs a Sarvam key in your local .env file or Streamlit secrets and the LangGraph engine. You can still use the example questions."}
             return _from_state(AgenticBIOrchestrator().process_query(question))
         finally:
             settings.customer_identifier_protection = previous
@@ -53,22 +54,20 @@ def _guided(question: str) -> dict:
     metric = SemanticLayerLoader().load().get_metric(metric_name)
     if metric is None:
         return {"error": "The metric definition is unavailable."}
-    connector = DuckDBConnector()
-    try:
-        sql = SemanticQueryResolver().resolve_metric_query(metric_name, dimensions=dimensions)
-        sql, _ = ASTSecurityValidator().validate_and_sanitize(sql, dialect="duckdb")
-        result = connector.execute_query(sql)
-        return {
-            "summary": _metric_summary(metric_name, result.to_pylist()),
-            "method": metric.description,
-            "sql": sql,
-            "data": result.data,
-            "sources": _source_tables(sql),
-            "caveats": _caveats(metric_name),
-            "label": "Defined metric",
-        }
-    finally:
-        connector.disconnect()
+    session = WarehouseSession()
+    connector = session.get_connector()
+    sql = SemanticQueryResolver().resolve_metric_query(metric_name, dimensions=dimensions)
+    sql, _ = ASTSecurityValidator().validate_and_sanitize(sql, dialect="duckdb")
+    result = connector.execute_query(sql)
+    return {
+        "summary": _metric_summary(metric_name, result.to_pylist()),
+        "method": metric.description,
+        "sql": sql,
+        "data": result.data,
+        "sources": _source_tables(sql),
+        "caveats": _caveats(metric_name),
+        "label": "Defined metric",
+    }
 
 
 def _metric_summary(metric_name: str, rows: list[dict]) -> str:

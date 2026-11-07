@@ -107,6 +107,60 @@ for index, (label, question) in enumerate(cards):
     if columns[index].button(label, use_container_width=True, key=f"example_{index}"):
         selected = question
 
+def render_assistant_result(result: dict) -> None:
+    """Render the structured assistant analysis result."""
+    if result.get("error"):
+        st.error(result["error"])
+    elif result.get("clarification"):
+        st.info(result["clarification"])
+    else:
+        st.caption(result.get("label", "Defined metric"))
+        st.markdown("**What I found**")
+        if result.get("summary"):
+            takeaway, points, narrative_caveats, full_text = split_analysis(result["summary"])
+            if takeaway:
+                st.info(takeaway)
+            for point in points:
+                st.markdown(f"- {point}")
+            for caveat in narrative_caveats:
+                st.caption("Caveat: " + caveat)
+            if full_text:
+                with st.expander("Read the full explanation"):
+                    st.write(full_text)
+        if result.get("data") is not None:
+            frame = result["data"].to_pandas()
+            st.markdown("**The numbers**")
+            product_columns = {"product_id", "category", "revenue", "orders", "new_orders", "repeat_orders", "new_revenue", "repeat_revenue", "new_order_pct", "repeat_order_pct"}
+            if product_columns.issubset(frame.columns):
+                overview, orders, sales = st.tabs(["Overview", "Orders & customers", "Units & revenue"])
+                def show_columns(names):
+                    selected_frame = frame[[col for col in names if col in frame.columns]].copy()
+                    selected_frame.columns = [col.replace("_", " ").title() for col in selected_frame.columns]
+                    st.dataframe(selected_frame, use_container_width=True, hide_index=True)
+                with overview:
+                    show_columns(["product_id", "category", "revenue", "orders", "new_order_pct", "repeat_order_pct"])
+                with orders:
+                    st.caption("Percentages are based on orders containing each product.")
+                    show_columns(["product_id", "category", "orders", "new_orders", "repeat_orders", "new_order_pct", "repeat_order_pct"])
+                with sales:
+                    st.caption("Revenue is in Brazilian reais (R$); freight is excluded.")
+                    show_columns(["product_id", "category", "units", "new_units", "repeat_units", "revenue", "new_revenue", "repeat_revenue"])
+            else:
+                frame.columns = [col.replace("_", " ").title() for col in frame.columns]
+                st.dataframe(frame, use_container_width=True, hide_index=True)
+            st.caption(f"{len(frame):,} result {'row' if len(frame) == 1 else 'rows'} · Use the table controls to explore the data.")
+        with st.expander("How this was calculated"):
+            if result.get("method"):
+                st.write(result["method"])
+            if result.get("sources"):
+                st.caption("Source tables: " + ", ".join(result["sources"]))
+            for caveat in result.get("caveats", []):
+                st.caption("Note: " + caveat)
+            if result.get("sql"):
+                st.markdown("**SQL used**")
+                st.code(result["sql"], language="sql")
+
+
 st.divider()
 st.markdown("<div class='section-label'>Your analysis</div>", unsafe_allow_html=True)
 if not st.session_state.messages:
@@ -117,67 +171,24 @@ for message in st.session_state.messages:
         if message["role"] == "user":
             st.write(message["content"])
         else:
-            result = message["result"]
-            if result.get("error"):
-                st.error(result["error"])
-            elif result.get("clarification"):
-                st.info(result["clarification"])
-            else:
-                st.caption(result["label"])
-                st.markdown("**What I found**")
-                if result.get("summary"):
-                    takeaway, points, narrative_caveats, full_text = split_analysis(result["summary"])
-                    if takeaway:
-                        st.info(takeaway)
-                    for point in points:
-                        st.markdown(f"- {point}")
-                    for caveat in narrative_caveats:
-                        st.caption("Caveat: " + caveat)
-                    if full_text:
-                        with st.expander("Read the full explanation"):
-                            st.write(full_text)
-                frame = result["data"].to_pandas()
-                st.markdown("**The numbers**")
-                product_columns = {"product_id", "category", "revenue", "orders", "new_orders", "repeat_orders", "new_revenue", "repeat_revenue", "new_order_pct", "repeat_order_pct"}
-                if product_columns.issubset(frame.columns):
-                    overview, orders, sales = st.tabs(["Overview", "Orders & customers", "Units & revenue"])
-                    def show_columns(names):
-                        selected_frame = frame[[col for col in names if col in frame.columns]].copy()
-                        selected_frame.columns = [col.replace("_", " ").title() for col in selected_frame.columns]
-                        st.dataframe(selected_frame, use_container_width=True, hide_index=True)
-                    with overview:
-                        show_columns(["product_id", "category", "revenue", "orders", "new_order_pct", "repeat_order_pct"])
-                    with orders:
-                        st.caption("Percentages are based on orders containing each product.")
-                        show_columns(["product_id", "category", "orders", "new_orders", "repeat_orders", "new_order_pct", "repeat_order_pct"])
-                    with sales:
-                        st.caption("Revenue is in Brazilian reais (R$); freight is excluded.")
-                        show_columns(["product_id", "category", "units", "new_units", "repeat_units", "revenue", "new_revenue", "repeat_revenue"])
-                else:
-                    frame.columns = [col.replace("_", " ").title() for col in frame.columns]
-                    st.dataframe(frame, use_container_width=True, hide_index=True)
-                st.caption(f"{len(frame):,} result {'row' if len(frame) == 1 else 'rows'} · Use the table controls to explore the data.")
-                with st.expander("How this was calculated"):
-                    if result.get("method"):
-                        st.write(result["method"])
-                    if result.get("sources"):
-                        st.caption("Source tables: " + ", ".join(result["sources"]))
-                    for caveat in result.get("caveats", []):
-                        st.caption("Note: " + caveat)
-                    if result.get("sql"):
-                        st.markdown("**SQL used**")
-                        st.code(result["sql"], language="sql")
+            render_assistant_result(message["result"])
 
 typed = st.chat_input("Ask about sales, orders, deliveries, or customers…")
-question = selected or typed
-if question:
-    st.session_state.messages.append({"role": "user", "content": question})
-    with st.spinner("Looking into the data…"):
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Arrow output on a DB-API result makes an extra copy.*", category=UserWarning)
-                answer = execute_question(question, "auto", protection)
-        except Exception:
-            answer = {"error": "The question could not be completed. Please try again or select an example."}
+active_question = selected or typed
+if active_question:
+    # 1. Store and display user message immediately
+    st.session_state.messages.append({"role": "user", "content": active_question})
+    with st.chat_message("user"):
+        st.write(active_question)
+
+    # 2. Execute and display assistant response immediately
+    with st.chat_message("assistant"):
+        with st.spinner("Looking into the data…"):
+            try:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="Arrow output on a DB-API result makes an extra copy.*", category=UserWarning)
+                    answer = execute_question(active_question, "auto", protection)
+            except Exception as exc:
+                answer = {"error": "The question could not be completed. Please try again or select an example."}
+            render_assistant_result(answer)
     st.session_state.messages.append({"role": "assistant", "result": answer})
-    st.rerun()

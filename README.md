@@ -7,8 +7,11 @@
 [![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg)](https://langchain-ai.github.io/langgraph/)
 [![Tests](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)](#test-suite--evaluation-benchmarks)
 [![Benchmark](https://img.shields.io/badge/benchmark-22%2F22%20(100%25)-success.svg)](#test-suite--evaluation-benchmarks)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://agentic-bi-warehouse.streamlit.app/)
 
 > **Governed, inspectable business analytics and SQL generation over 550,761 real-world e-commerce records.** Eliminates the "Production Cliff" of Text-to-SQL through deterministic semantic compilation, SQLGlot AST guardrails, and defense-in-depth OLAP sandboxing.
+>
+> 🌐 **Live Interactive Web Demo**: **[https://agentic-bi-warehouse.streamlit.app/](https://agentic-bi-warehouse.streamlit.app/)** *(No setup required — runs live in-browser)*
 
 ---
 
