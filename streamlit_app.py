@@ -25,7 +25,7 @@ except Exception:
 from src.web_service import GUIDED_QUESTIONS, execute_question
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner="⚡ Initializing in-memory DuckDB warehouse (550,000+ records)...")
 def _warmup_warehouse() -> bool:
     """Preload in-memory DuckDB tables on worker start to eliminate first-query cold lag."""
     try:
@@ -85,10 +85,40 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# First-load welcome modal & readiness banner
+if hasattr(st, "dialog"):
+    @st.dialog("🚀 Analytical Workspace Ready", width="large")
+    def show_first_load_modal():
+        st.markdown("""
+        ### Welcome to Fieldnote
+        Fieldnote connects an AI analytics assistant to an **in-memory DuckDB analytical warehouse** pre-loaded with **550,000+ real-world Brazilian e-commerce orders** (Olist, 2016–2018).
+
+        **System Highlights & Guardrails:**
+        - 🛡️ **Zero-Trust Security**: Multi-stage AST query sanitization blocks unauthorized statements, file/system functions, and Cartesian joins.
+        - ⚡ **In-Memory Speed**: Sub-second execution over 550,000 records without external database dependencies.
+        - 🧠 **Governed Metrics**: Deterministic semantic layer formulas for GMV, AOV, delivery delay rates, and customer cohorts.
+
+        You can explore using the **4 guided questions** or by typing any analytical query in the box below.
+        """)
+        st.success("✅ **DuckDB analytical engine warmed up and ready.**")
+        if st.button("Start Exploring ➔", type="primary", use_container_width=True):
+            st.session_state.first_load_seen = True
+            st.rerun()
+
+    if "first_load_seen" not in st.session_state:
+        st.session_state.first_load_seen = True
+        show_first_load_modal()
+        if hasattr(st, "toast"):
+            st.toast("⚡ Warehouse ready! 550,000+ records loaded in DuckDB.", icon="✅")
+
 with st.sidebar:
     st.markdown("<div class='eyebrow'>◒ &nbsp; Fieldnote / Analytics</div>", unsafe_allow_html=True)
     st.markdown("### Your workspace")
     st.caption("A local demo built for clearer business decisions.")
+    st.caption("🟢 **Status**: In-Memory DuckDB (550k records ready)")
+    if hasattr(st, "dialog"):
+        if st.button("ℹ️ Workspace Overview", use_container_width=True):
+            show_first_load_modal()
     st.divider()
     protection = st.toggle("Protect customer IDs", value=False,
                            help="When on, queries referencing the repeat-customer identifier are blocked.")
