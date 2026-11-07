@@ -50,10 +50,11 @@ class SemanticQueryResolver:
         dim_select_exprs: list[str] = []
         group_by_exprs: list[str] = []
 
-        for dim_name in target_dims:
-            if dim_name not in metric.dimensions:
+        for raw_dim in target_dims:
+            dim_name = self._canonicalize_dimension(raw_dim, metric.dimensions)
+            if not dim_name:
                 raise SemanticResolutionError(
-                    f"Dimension '{dim_name}' is not supported for metric '{metric_name}'."
+                    f"Dimension '{raw_dim}' is not supported for metric '{metric_name}'."
                 )
             dim_loc = self._find_dimension(dim_name)
             if not dim_loc:
@@ -121,6 +122,21 @@ class SemanticQueryResolver:
 
         sql += ";"
         return sql
+
+    def _canonicalize_dimension(self, dim_name: str, allowed_dimensions: list[str]) -> str | None:
+        """Resolve a dimension name or synonym to a canonical metric dimension."""
+        for d in allowed_dimensions:
+            if d.lower() == dim_name.lower():
+                return d
+        for model in self.config.models:
+            for dim in model.dimensions:
+                if dim.name in allowed_dimensions:
+                    if dim_name.lower() == dim.name.lower() or dim_name.lower() in [s.lower() for s in dim.synonyms]:
+                        return dim.name
+        for d in allowed_dimensions:
+            if dim_name.lower() in d.lower() or d.lower().endswith(dim_name.lower()):
+                return d
+        return None
 
     def _find_dimension(self, dim_name: str) -> tuple[str, str] | None:
         """Find table and column for a dimension name or synonym."""

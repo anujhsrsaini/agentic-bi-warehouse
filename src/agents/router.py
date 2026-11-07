@@ -78,15 +78,16 @@ class IntentRouterAgent:
 
     def _extract_dimensions(self, text: str) -> list[str]:
         """Extract requested grouping dimensions from the question text."""
-        # A filter ("in Rio") or part of a metric name ("payment value")
-        # does not request a grouping. Only interpret explicit grouping text.
-        grouping = re.search(r"\b(?:by|per|for each|grouped by|breakdown by)\b\s+(.+)", text)
-        if not grouping:
-            return []
-        group_text = grouping.group(1)
+        grouping = re.search(r"\b(?:by|per|for each|grouped by|breakdown by|split by|across|across each)\b\s+(.+)", text)
+        group_text = grouping.group(1) if grouping else ""
 
         def has(phrase: str) -> bool:
-            return bool(re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", group_text))
+            pattern = r"(?<!\w)" + re.escape(phrase) + r"(?!\w)"
+            if group_text and re.search(pattern, group_text):
+                return True
+            # Also match "{phrase} wise", "{phrase}-wise", or "{phrase} breakdown/split" anywhere in question
+            wise_pattern = rf"\b{re.escape(phrase)}(?:s)?(?:[ -]?wise|\s+(?:breakdown|split|distribution))\b"
+            return bool(re.search(wise_pattern, text))
 
         dims = []
         if any(has(w) for w in ["state", "region"]):
