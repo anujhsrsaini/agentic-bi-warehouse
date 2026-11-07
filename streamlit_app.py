@@ -84,18 +84,6 @@ st.markdown("""
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-else:
-    # Prune any dangling user messages that never received an assistant reply
-    paired = []
-    for msg in st.session_state.messages:
-        if msg.get("role") == "user":
-            if not paired or paired[-1].get("role") != "user":
-                paired.append(msg)
-        elif msg.get("role") == "assistant" and paired and paired[-1].get("role") == "user":
-            paired.append(msg)
-    if paired and paired[-1].get("role") == "user":
-        paired.pop()
-    st.session_state.messages = paired
 
 with st.sidebar:
     st.markdown("<div class='eyebrow'>◒ &nbsp; Fieldnote / Analytics</div>", unsafe_allow_html=True)
@@ -203,10 +191,6 @@ st.caption("💡 *Type or paste your question below and press **Enter** (or clic
 typed = st.chat_input("Ask about sales, orders, deliveries, or customers (press Enter to run)…")
 active_question = (selected or typed or "").strip()
 if active_question:
-    # Ensure no orphan user message at tail
-    while st.session_state.messages and st.session_state.messages[-1].get("role") == "user":
-        st.session_state.messages.pop()
-
     # 1. Store and display user message immediately
     st.session_state.messages.append({"role": "user", "content": active_question})
     with st.chat_message("user"):
@@ -221,5 +205,8 @@ if active_question:
                     answer = execute_question(active_question, "auto", protection)
             except Exception as exc:
                 answer = {"error": f"The question could not be completed: {exc}"}
-        render_assistant_result(answer)
+        try:
+            render_assistant_result(answer)
+        except Exception as exc:
+            st.error(f"Display error: {exc}")
     st.session_state.messages.append({"role": "assistant", "result": answer})
