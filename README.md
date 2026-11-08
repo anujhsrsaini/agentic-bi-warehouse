@@ -5,13 +5,15 @@
 [![DuckDB](https://img.shields.io/badge/DuckDB-0.10+-yellow.svg)](https://duckdb.org/)
 [![FastMCP](https://img.shields.io/badge/MCP-FastMCP-purple.svg)](https://modelcontextprotocol.io/)
 [![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg)](https://langchain-ai.github.io/langgraph/)
-[![Tests](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)](#test-suite--evaluation-benchmarks)
+[![Tests](https://img.shields.io/badge/tests-128%20passed-brightgreen.svg)](#test-suite--evaluation-benchmarks)
 [![Benchmark](https://img.shields.io/badge/benchmark-22%2F22%20(100%25)-success.svg)](#test-suite--evaluation-benchmarks)
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://agentic-bi-warehouse.streamlit.app/)
 
 > **Governed, inspectable business analytics and SQL generation over 550,761 real-world e-commerce records.** Eliminates the "Production Cliff" of Text-to-SQL through deterministic semantic compilation, SQLGlot AST guardrails, and defense-in-depth OLAP sandboxing.
 >
-> 🌐 **Live Interactive Web Demo**: **[https://agentic-bi-warehouse.streamlit.app/](https://agentic-bi-warehouse.streamlit.app/)** *(No setup required — runs live in-browser)*
+> 🌐 **Live Interactive Web Demo**: **[https://agentic-bi-warehouse.streamlit.app/](https://agentic-bi-warehouse.streamlit.app/)** *(Zero setup required — runs live in-browser)*
+>
+> 💡 **Cloud Demo Note**: Free Streamlit Community Cloud instances sleep after inactivity. On initial visit, waking the container and pre-warming the 550,000-row in-memory DuckDB warehouse takes ~10–15 seconds. If a query ever feels stuck during a cold start or reconnect, simply **refresh your browser (`Ctrl + F5` or `Cmd + Shift + R`)** or click **"Clear conversation"** in the sidebar, and ask again.
 
 ---
 
@@ -108,11 +110,32 @@ flowchart TD
 
 ---
 
-## 💻 Quickstart: Run the Demo in 60 Seconds
+## 💻 Quickstart: Try the Demo
+
+### Option A: Live Cloud Demo (Instant — Zero Setup)
+
+Access the live cloud deployment directly in your browser: **[https://agentic-bi-warehouse.streamlit.app/](https://agentic-bi-warehouse.streamlit.app/)**
+
+- **One-Click Guided Metrics**: Click any example card (`↗ Sales by state`, `◷ Late deliveries`, `◒ New vs. repeat buyers`, `◎ Average order value`).
+- **Natural Language Querying**:
+  - *"Share state wise revenue"*
+  - *"Share the Top 10 product categories and the customer new vs repeat share in terms of revenue and also need category % as total of the revenue"*
+  - *"Share state wise revenue for last 5 months data that exists in the datawarehouse"*
+- **Inspect Exact SQL & Lineage**: Expand *"How this was calculated"* to audit the executed DuckDB SQL, referenced physical tables, execution times, and business caveats.
+
+> [!TIP]
+> **Streamlit Cloud Wake-Up & Refresh Tip**:
+> Free Streamlit Community Cloud instances sleep after periods of inactivity. On the very first visit, container boot and loading the 550,000-row DuckDB analytical database takes ~10–15 seconds.
+>
+> If the application ever appears stuck during wake-up or connection drops, simply:
+> 1. **Refresh your browser tab** (`Ctrl + F5` on Windows/Linux or `Cmd + Shift + R` on Mac).
+> 2. Or click **"Clear conversation"** in the left sidebar and re-enter your question.
+
+---
+
+### Option B: Local Streamlit Web Cockpit ("Fieldnote")
 
 Prerequisites: Python 3.10+ and a virtual environment. All 38.7 MB of Olist Parquet tables are pre-bundled under `data/seed/`. **No API keys or cloud accounts needed.**
-
-### Option A: Streamlit Web Cockpit ("Fieldnote")
 
 ```powershell
 # 1. Create and activate virtual environment
@@ -134,7 +157,7 @@ Open `http://localhost:8501` to access:
 
 ---
 
-### Option B: Interactive Terminal Cockpit
+### Option C: Interactive Terminal Cockpit
 
 ```powershell
 python demo.py
