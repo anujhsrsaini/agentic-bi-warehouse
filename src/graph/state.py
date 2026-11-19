@@ -20,6 +20,8 @@ class GraphState(TypedDict, total=False):
     dimensions: list[str]
     filters: list[str]
     grounded_entities: dict[str, Any]
+    limit: int
+    order_ascending: bool
     raw_sql: str
     sql_rationale: str
     validated_sql: str
@@ -68,6 +70,8 @@ def graph_to_state(g: GraphState) -> AgenticBIState:
         dimensions=list(g.get("dimensions") or []),
         filters=list(g.get("filters") or []),
         grounded_entities=dict(g.get("grounded_entities") or {}),
+        limit=int(g.get("limit", 100) or 100),
+        order_ascending=bool(g.get("order_ascending", False)),
         raw_sql=g.get("raw_sql", "") or "",
         sql_rationale=g.get("sql_rationale", "") or "",
         validated_sql=g.get("validated_sql", "") or "",

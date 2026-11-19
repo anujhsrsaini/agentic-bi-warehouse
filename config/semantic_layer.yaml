@@ -28,6 +28,14 @@ models:
         type: timestamp
         column: order_purchase_timestamp
         synonyms: ["purchase date", "order date", "ordered at"]
+      - name: order_date
+        type: date
+        column: order_purchase_timestamp
+        synonyms: ["day", "daywise", "daily", "by day", "purchase day"]
+      - name: order_month
+        type: string
+        column: order_purchase_timestamp
+        synonyms: ["month", "monthwise", "monthly", "by month"]
       - name: order_delivered_customer_date
         type: timestamp
         column: order_delivered_customer_date
@@ -195,7 +203,7 @@ metrics:
         on: "order_items.order_id = orders.order_id"
     calculation: "SUM(order_items.price)"
     filter: "orders.order_status != 'canceled'"
-    dimensions: [customer_state, product_category_name, order_status, seller_state]
+    dimensions: [customer_state, product_category_name, payment_type, order_status, seller_state, order_date, order_month, order_week, order_year]
     synonyms: ["gmv", "gross merchandise value", "total sales", "revenue", "total revenue", "sales"]
 
   - name: total_orders
@@ -226,7 +234,7 @@ metrics:
     model: order_items
     calculation: "SUM(order_items.freight_value) / NULLIF(SUM(order_items.price), 0) * 100.0"
     dimensions: [product_category_name, seller_state]
-    synonyms: ["freight ratio", "shipping ratio", "freight to gmv", "logistics ratio", "shipping cost ratio"]
+    synonyms: ["freight ratio", "freight value ratio", "shipping ratio", "freight to gmv", "logistics ratio", "shipping cost ratio"]
 
   - name: avg_review_score
     label: "Average Review Score (CSAT)"

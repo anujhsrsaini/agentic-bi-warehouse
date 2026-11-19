@@ -25,6 +25,10 @@ venv/
 ENV/
 env/
 
+# Node / frontend
+node_modules/
+*.tsbuildinfo
+
 # Data & Caches
 .cache/
 data/cache/

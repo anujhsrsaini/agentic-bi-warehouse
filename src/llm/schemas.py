@@ -12,6 +12,8 @@ class IntentRouteOutput(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     metric_name: str | None = None
     dimensions: list[str] = Field(default_factory=list)
+    limit: int | None = None
+    order_ascending: bool = False
     clarification_prompt: str | None = None
     clarification_options: list[str] = Field(default_factory=list)
     rationale: str = ""
@@ -23,6 +25,8 @@ class SQLGenerationOutput(BaseModel):
     certified_metric: str | None = None
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] = Field(default_factory=list)
+    limit: int | None = None
+    order_ascending: bool = False
 
 
 class SQLRepairOutput(BaseModel):

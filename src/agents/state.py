@@ -34,6 +34,8 @@ class AgenticBIState:
     dimensions: list[str] = field(default_factory=list)
     filters: list[str] = field(default_factory=list)
     grounded_entities: dict[str, Any] = field(default_factory=dict)
+    limit: int = 100
+    order_ascending: bool = False
 
     # Stage 3: SQL Generator
     raw_sql: str = ""

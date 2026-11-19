@@ -45,6 +45,7 @@ class MetricDefinition(BaseModel):
     filter: str | None = None
     dimensions: list[str] = Field(default_factory=list)
     synonyms: list[str] = Field(default_factory=list)
+    join_path: list[dict[Any, Any]] = Field(default_factory=list)
 
 
 class SemanticLayerConfig(BaseModel):

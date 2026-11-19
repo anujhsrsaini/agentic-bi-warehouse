@@ -1,0 +1,43 @@
+# VCS / CI
+.git
+.github
+.gitignore
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Python caches and build artifacts
+**/__pycache__
+**/*.py[cod]
+**/*.so
+**/*.egg-info
+.eggs
+build
+dist
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+
+# Local caches / generated data
+.cache
+data/cache
+*.parquet.tmp
+
+# Frontend deps and build output (rebuilt in stage 1)
+frontend/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+
+# Non-runtime content
+docs
+eval
+scripts
+tests
+**/*.md
+.commandcode
+Makefile
+cockpit-deploy.sh

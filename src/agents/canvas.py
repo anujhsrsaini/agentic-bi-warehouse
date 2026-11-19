@@ -16,6 +16,28 @@ from src.agents.state import AgenticBIState
 class VisualCanvasAgent:
     """Builds executive narratives and Vega-Lite chart specifications."""
 
+    _CURRENCY_TOKENS = ("gmv", "aov", "price", "payment", "freight", "revenue", "arr", "mrr", "sales")
+    _RATE_TOKENS = ("pct", "rate", "ratio", "percent")
+    _SCORE_TOKENS = ("score", "rating", "csat", "days", "installment")
+
+    @classmethod
+    def _format_metric_value(cls, metric_col: str, value: Any) -> str:
+        """Format a metric value consistently (currency, rate, score, or count)."""
+        if value is None:
+            return "—"
+        if not isinstance(value, (int, float)):
+            return str(value)
+        key = metric_col.lower()
+        if any(t in key for t in cls._RATE_TOKENS):
+            return f"{value:,.2f}%"
+        if any(t in key for t in cls._SCORE_TOKENS):
+            return f"{value:,.2f}"
+        if any(t in key for t in cls._CURRENCY_TOKENS):
+            return f"R$ {value:,.2f}"
+        if isinstance(value, int) or float(value).is_integer():
+            return f"{int(value):,}"
+        return f"{value:,.2f}"
+
     def synthesize(self, state: AgenticBIState) -> AgenticBIState:
         """Synthesize narrative, chart spec, and action chips."""
         res = state.execution_result
@@ -47,8 +69,53 @@ class VisualCanvasAgent:
             formatted_val = f"{val:,.2f}" if isinstance(val, float) else str(val)
             return f"**{metric_col.upper()}**: **{formatted_val}** for the selected criteria."
 
-        # Grouped summary
         dim_col = cols[0]
+
+        # Check if New vs Repeat customer count split
+        if "new_customers" in cols and "repeat_customers" in cols:
+            peak = max(rows, key=lambda r: r.get("total_customers") or 0)
+            grain_label = "Daily" if "date" in dim_col or "day" in dim_col else "Monthly"
+            return (
+                f"**{grain_label} New vs Repeat Customer Count Split** across {n_rows} intervals:\n"
+                f"- **Peak Interval**: **{peak.get(dim_col)}**\n"
+                f"- **New Customers**: **{self._format_metric_value('new_customers', peak.get('new_customers'))}**\n"
+                f"- **Repeat Customers**: **{self._format_metric_value('repeat_customers', peak.get('repeat_customers'))}**\n"
+                f"- **Total Customers**: **{self._format_metric_value('total_customers', peak.get('total_customers'))}**"
+            )
+
+        # Check if New vs Repeat cohort analysis
+        if "new_customer_gmv" in cols and "repeat_customer_gmv" in cols:
+            total_new = sum(r.get("new_customer_gmv", 0) for r in rows if isinstance(r.get("new_customer_gmv"), (int, float)))
+            total_rep = sum(r.get("repeat_customer_gmv", 0) for r in rows if isinstance(r.get("repeat_customer_gmv"), (int, float)))
+            total_all = total_new + total_rep
+            rep_pct = (total_rep / total_all * 100.0) if total_all > 0 else 0
+            new_pct = 100.0 - rep_pct
+
+            grain_label = "Daily" if "date" in dim_col or "day" in dim_col else "Monthly"
+            return (
+                f"**{grain_label} New vs Repeat Customer GMV Breakdown** across {n_rows} days:\n"
+                f"- **New Customer GMV**: **R$ {total_new:,.2f}** ({new_pct:.1f}% of total)\n"
+                f"- **Repeat Customer GMV**: **R$ {total_rep:,.2f}** ({rep_pct:.1f}% of total)\n"
+                f"- **Total Period GMV**: **R$ {total_all:,.2f}**"
+            )
+
+        # Check if temporal time-series dimension
+        if dim_col in ("order_date", "order_month", "order_week", "order_year", "day", "date", "month"):
+            total_val = sum(r[metric_col] for r in rows if isinstance(r.get(metric_col), (int, float)))
+            avg_val = total_val / len(rows) if len(rows) > 0 else 0
+            sorted_by_val = sorted(rows, key=lambda r: r.get(metric_col) if isinstance(r.get(metric_col), (int, float)) else 0, reverse=True)
+            peak_row = sorted_by_val[0]
+            grain_label = "Daily" if "date" in dim_col or "day" in dim_col else "Monthly"
+            
+            return (
+                f"**{grain_label} {metric_col.upper()} Trend** across {n_rows} intervals:\n"
+                f"- **Total Period {metric_col.upper()}**: **{self._format_metric_value(metric_col, total_val)}** "
+                f"(Average **{self._format_metric_value(metric_col, avg_val)}** per interval).\n"
+                f"- **Peak Volume**: **{peak_row[dim_col]}** reached "
+                f"**{self._format_metric_value(metric_col, peak_row[metric_col])}**."
+            )
+
+        # Categorical grouped summary
         top_row = rows[0]
         top_dim = top_row[dim_col]
         top_val = top_row[metric_col]

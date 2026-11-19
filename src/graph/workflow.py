@@ -93,7 +93,10 @@ def run_agentic_bi(
             except Exception:
                 pass
         if state.intent == UserIntent.DIAGNOSTIC_WHY:
-            diag = MetricAttributionEngine().diagnose_churn_drivers(state.execution_result.data)
+            requested_state = state.grounded_entities.get("customers.customer_state")
+            diag = MetricAttributionEngine().diagnose_churn_drivers(
+                state.execution_result.data, requested_state=requested_state
+            )
             state.diagnostic_attribution = diag
             state.summary_narrative = diag.get("summary_narrative", "")
         if not state.summary_narrative:

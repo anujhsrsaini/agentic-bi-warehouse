@@ -171,12 +171,12 @@ class CategoricalEntityGrounder:
                 for token in tokens:
                     if len(token) < 3 or token in skip_state_tokens:
                         continue
-                    # Two-letter state codes are too short for safe fuzzy
-                    # matching ("Rio" was previously misread as RO as well
-                    # as its explicit RJ synonym). Exact codes still match
-                    # through the synonym map above.
+                    # Only fuzzy match against candidates with length >= 3 to avoid false matches with 2-letter state codes (e.g. "top" matching "TO")
+                    candidate_pool = [v.lower() for v in allowed_vals if len(v) >= 3]
+                    if not candidate_pool:
+                        continue
                     close = difflib.get_close_matches(
-                        token, [v.lower() for v in allowed_vals if len(v) >= 3], n=1, cutoff=0.80
+                        token, candidate_pool, n=1, cutoff=0.80
                     )
                     if close:
                         for orig in allowed_vals:

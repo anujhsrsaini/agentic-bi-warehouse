@@ -58,6 +58,9 @@ def route_node(g: GraphState) -> GraphState:
             state.confidence = out.confidence
             state.metric_name = out.metric_name
             state.dimensions = out.dimensions or []
+            if out.limit:
+                state.limit = min(int(out.limit), settings.max_query_limit)
+            state.order_ascending = bool(out.order_ascending)
             state.clarification_prompt = out.clarification_prompt
             state.clarification_options = out.clarification_options or []
             return state_to_graph(state)
@@ -77,6 +80,17 @@ def ground_node(g: GraphState) -> GraphState:
         clause = f"{tbl}.{col} = '{val}'"
         if clause not in state.filters:
             state.filters.append(clause)
+
+    # Deterministic extraction that must apply in both LLM and deterministic router modes.
+    router = IntentRouterAgent()
+    extracted_limit = router._extract_limit(state.question)
+    if extracted_limit is not None:
+        state.limit = extracted_limit
+    if router._extract_order_ascending(state.question):
+        state.order_ascending = True
+    t_filter = router._extract_time_filter(state.question)
+    if t_filter and t_filter not in state.filters:
+        state.filters.append(t_filter)
     return state_to_graph(state)
 
 
@@ -88,7 +102,8 @@ def generate_sql_node(g: GraphState) -> GraphState:
             metric_name=state.metric_name,
             dimensions=state.dimensions,
             filters=state.filters,
-            limit=100,
+            limit=state.limit,
+            order_ascending=state.order_ascending,
         )
         state.sql_rationale = f"Compiled certified metric [{state.metric_name}] from semantic_layer.yaml."
         return state_to_graph(state)
@@ -112,11 +127,16 @@ def generate_sql_node(g: GraphState) -> GraphState:
                 state.metric_name = out.certified_metric
                 state.dimensions = out.dimensions or state.dimensions
                 state.filters = (state.filters or []) + (out.filters or [])
+                if out.limit:
+                    state.limit = min(int(out.limit), settings.max_query_limit)
+                if out.order_ascending:
+                    state.order_ascending = True
                 state.raw_sql = SemanticQueryResolver().resolve_metric_query(
                     metric_name=state.metric_name,
                     dimensions=state.dimensions,
                     filters=state.filters,
-                    limit=100,
+                    limit=state.limit,
+                    order_ascending=state.order_ascending,
                 )
                 state.sql_rationale = out.rationale or f"Compiled certified metric [{state.metric_name}] from semantic_layer.yaml."
                 return state_to_graph(state)
@@ -198,7 +218,10 @@ def attribution_node(g: GraphState) -> GraphState:
     state = graph_to_state(g)
     if state.intent == UserIntent.DIAGNOSTIC_WHY and state.execution_result:
         try:
-            diag = MetricAttributionEngine().diagnose_churn_drivers(state.execution_result.data)
+            requested_state = state.grounded_entities.get("customers.customer_state")
+            diag = MetricAttributionEngine().diagnose_churn_drivers(
+                state.execution_result.data, requested_state=requested_state
+            )
             state.diagnostic_attribution = diag
             state.summary_narrative = diag.get("summary_narrative", state.summary_narrative)
         except Exception:

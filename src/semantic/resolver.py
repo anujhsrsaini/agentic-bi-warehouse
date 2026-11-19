@@ -31,6 +31,7 @@ class SemanticQueryResolver:
         filters: list[str] | None = None,
         limit: int = 100,
         order_by_metric: bool = True,
+        order_ascending: bool = False,
     ) -> str:
         """Resolve a metric and dimensions into deterministic SQL."""
         metric = self.config.get_metric(metric_name)
@@ -56,36 +57,89 @@ class SemanticQueryResolver:
                 raise SemanticResolutionError(
                     f"Dimension '{raw_dim}' is not supported for metric '{metric_name}'."
                 )
-            dim_loc = self._find_dimension(dim_name)
-            if not dim_loc:
-                raise SemanticResolutionError(f"Dimension '{dim_name}' not found in semantic catalog.")
-            
-            tbl_name, col_name = dim_loc
-            qualified_col = f"{tbl_name}.{col_name}"
-            dim_select_exprs.append(f"{qualified_col} AS {dim_name}")
-            group_by_exprs.append(qualified_col)
 
-            # If dimension is from another table, resolve join
-            if tbl_name != base_model.table:
-                join_result = self._resolve_join(base_model, tbl_name)
-                if isinstance(join_result, list):
-                    for jc in join_result:
-                        if jc not in joins_needed:
-                            joins_needed.append(jc)
-                elif join_result and join_result not in joins_needed:
-                    joins_needed.append(join_result)
-
-        # Also check if any filter references an external table
-        for f in ([metric.filter] if metric.filter else []) + (filters or []):
-            for model in self.config.models:
-                if model.table != base_model.table and f"{model.table}." in f:
-                    join_result = self._resolve_join(base_model, model.table)
+            # Temporal grains are derived expressions, not raw columns.
+            if dim_name in ("order_date", "order_month", "order_week", "order_year"):
+                if dim_name == "order_date":
+                    dim_expr = "CAST(orders.order_purchase_timestamp AS DATE)"
+                elif dim_name == "order_month":
+                    dim_expr = "DATE_TRUNC('month', orders.order_purchase_timestamp)"
+                elif dim_name == "order_week":
+                    dim_expr = "DATE_TRUNC('week', orders.order_purchase_timestamp)"
+                else:
+                    dim_expr = "DATE_TRUNC('year', orders.order_purchase_timestamp)"
+                dim_select_exprs.append(f"{dim_expr} AS {dim_name}")
+                group_by_exprs.append(dim_expr)
+                if base_model.table != "orders":
+                    join_result = self._resolve_join(base_model, "orders")
                     if isinstance(join_result, list):
                         for jc in join_result:
                             if jc not in joins_needed:
                                 joins_needed.append(jc)
                     elif join_result and join_result not in joins_needed:
                         joins_needed.append(join_result)
+                continue
+
+            dim_loc = self._find_dimension(dim_name)
+            if not dim_loc:
+                raise SemanticResolutionError(f"Dimension '{dim_name}' not found in semantic catalog.")
+
+            tbl_name, col_name = dim_loc
+
+            if tbl_name == "products" and col_name == "product_category_name":
+                # Translate Portuguese category names to English via category_translation.
+                translated_expr = (
+                    "COALESCE(category_translation.product_category_name_english, "
+                    "products.product_category_name)"
+                )
+                dim_select_exprs.append(f"{translated_expr} AS {dim_name}")
+                group_by_exprs.append(translated_expr)
+
+                if base_model.table != "products" and not any(j[0] == "products" for j in joins_needed):
+                    join_result = self._resolve_join(base_model, "products")
+                    if isinstance(join_result, list):
+                        for jc in join_result:
+                            if jc not in joins_needed:
+                                joins_needed.append(jc)
+                    elif join_result and join_result not in joins_needed:
+                        joins_needed.append(join_result)
+
+                if not any(j[0] == "category_translation" for j in joins_needed):
+                    joins_needed.append((
+                        "category_translation",
+                        "products.product_category_name = category_translation.product_category_name",
+                        "LEFT",
+                    ))
+            else:
+                qualified_col = f"{tbl_name}.{col_name}"
+                dim_select_exprs.append(f"{qualified_col} AS {dim_name}")
+                group_by_exprs.append(qualified_col)
+
+                if tbl_name != base_model.table:
+                    join_result = self._resolve_join(base_model, tbl_name)
+                    if isinstance(join_result, list):
+                        for jc in join_result:
+                            if jc not in joins_needed:
+                                joins_needed.append(jc)
+                    elif join_result and join_result not in joins_needed:
+                        joins_needed.append(join_result)
+
+        # Also check if metric.filter or any user filter references an external table
+        all_filter_checks = list(filters or [])
+        if metric.filter:
+            all_filter_checks.append(metric.filter)
+
+        for f in all_filter_checks:
+            for model in self.config.models:
+                if model.table != base_model.table and f"{model.table}." in f:
+                    if not any(j[0] == model.table for j in joins_needed):
+                        join_result = self._resolve_join(base_model, model.table)
+                        if isinstance(join_result, list):
+                            for jc in join_result:
+                                if jc not in joins_needed:
+                                    joins_needed.append(jc)
+                        elif join_result and join_result not in joins_needed:
+                            joins_needed.append(join_result)
 
         # Assemble WHERE clauses
         where_clauses: list[str] = []
@@ -114,8 +168,13 @@ class SemanticQueryResolver:
         if group_by_exprs:
             sql += f"\nGROUP BY {', '.join(group_by_exprs)}"
 
-        if order_by_metric:
-            sql += f"\nORDER BY {metric.name} DESC"
+        # If temporal dimensions present, order chronologically; otherwise by metric descending
+        temporal_dims = [d for d in target_dims if d in ("order_date", "order_month", "order_week", "order_year")]
+        if temporal_dims:
+            sql += f"\nORDER BY {temporal_dims[0]} ASC"
+        elif order_by_metric:
+            direction = "ASC" if order_ascending else "DESC"
+            sql += f"\nORDER BY {metric.name} {direction}"
 
         if limit > 0:
             sql += f"\nLIMIT {limit}"
@@ -140,6 +199,8 @@ class SemanticQueryResolver:
 
     def _find_dimension(self, dim_name: str) -> tuple[str, str] | None:
         """Find table and column for a dimension name or synonym."""
+        if dim_name in ("order_date", "order_month", "order_week", "order_year"):
+            return ("orders", "order_purchase_timestamp")
         for model in self.config.models:
             for dim in model.dimensions:
                 if dim.name.lower() == dim_name.lower():
@@ -148,11 +209,11 @@ class SemanticQueryResolver:
                     return (model.table, dim.column)
         return None
 
-    def _resolve_join(self, base_model: SemanticModel, target_table: str) -> tuple[str, str, str] | list[tuple[str, str, str]]:
+    def _resolve_join(self, base_model: SemanticModel, target_table: str) -> list[tuple[str, str, str]]:
         """Find foreign key join between base model and target table.
 
-        Returns a single join tuple or a list of join tuples for multi-hop paths.
-        Each tuple: (target_table, on_condition, join_type)
+        Uses Breadth-First Search (BFS) to find the shortest join path across the relational catalog.
+        Returns a list of join tuples: (target_table, on_condition, join_type)
         """
         # 1. Direct FK on base model → target
         for fk in base_model.foreign_keys:
