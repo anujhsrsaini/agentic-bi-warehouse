@@ -25,6 +25,8 @@ def router_prompt(question: str, semantic_metrics: list[dict[str, Any]]) -> list
         "'payment method(s)' -> payment_type. "
         "If a question asks for date/time filters (e.g. 'last 5 months', 'in 2017') or a calculation the metric alone cannot provide "
         "(such as new versus repeat customers or cohort retention), use EXPLORATORY_SQL, not CERTIFIED_METRIC. "
+        "Never choose CLARIFICATION_REQUIRED for a concrete multi-step analysis (cohort retention, top-N then retention, funnels, RFM, "
+        "churn, segmentation); choose EXPLORATORY_SQL and let the SQL generator handle it. "
         "Do not generate SQL."
     )
     user = json.dumps({"question": question, "certified_metrics": semantic_metrics}, ensure_ascii=False)

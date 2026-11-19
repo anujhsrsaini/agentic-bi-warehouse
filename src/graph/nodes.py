@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src.agents.attribution import MetricAttributionEngine
@@ -20,6 +21,12 @@ from src.llm.schemas import IntentRouteOutput, NarrativeOutput, SQLGenerationOut
 from src.security.ast_validator import ASTSecurityValidator
 from src.semantic.loader import SemanticLayerLoader
 from src.semantic.resolver import SemanticQueryResolver
+
+# Only a bare generic revenue/sales question should trigger disambiguation.
+_BARE_GENERIC_REVENUE_RE = re.compile(
+    r"^\s*(?:show|what(?:'s| is)?|give me|tell me|display)?\s*(?:our|the)?\s*(?:total)?\s*(?:revenue|sales)\s*\??\s*$",
+    re.IGNORECASE,
+)
 
 
 def _semantic_catalog() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -54,6 +61,15 @@ def route_node(g: GraphState) -> GraphState:
             metrics, _ = _semantic_catalog()
             model = get_chat_model("router").with_structured_output(IntentRouteOutput)
             out: IntentRouteOutput = model.invoke(router_prompt(state.question, metrics))
+            # Concrete analyses (cohort retention, top-N, funnels, etc.) are not
+            # ambiguous; only bare generic revenue/sales should ask for clarification.
+            if out.intent == UserIntent.CLARIFICATION_REQUIRED and not _BARE_GENERIC_REVENUE_RE.match(state.question):
+                out.intent = UserIntent.EXPLORATORY_SQL
+            # A clarification prompt is only valid when the intent is actually
+            # CLARIFICATION_REQUIRED; otherwise it would hide a valid result.
+            if out.intent != UserIntent.CLARIFICATION_REQUIRED:
+                out.clarification_prompt = None
+                out.clarification_options = []
             state.intent = out.intent
             state.confidence = out.confidence
             state.metric_name = out.metric_name
