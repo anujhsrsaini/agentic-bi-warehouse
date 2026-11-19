@@ -9,6 +9,7 @@ Translates high-level business metric queries into deterministic, canonical SQL:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 import sqlglot
 from sqlglot import exp
@@ -124,8 +125,28 @@ class SemanticQueryResolver:
                     elif join_result and join_result not in joins_needed:
                         joins_needed.append(join_result)
 
+        # Combine multiple equality predicates on the same column into one IN clause.
+        # "credit card vs boleto vs voucher" must be OR semantics, not AND.
+        combined_filters: list[str] = []
+        eq_by_col: dict[str, list[str]] = {}
+        eq_re = re.compile(r"^\s*([A-Za-z_]\w*\.[A-Za-z_]\w*)\s*=\s*'([^']*)'\s*$")
+        for f in (filters or []):
+            m = eq_re.match(f)
+            if m:
+                eq_by_col.setdefault(m.group(1), []).append(m.group(2))
+            else:
+                combined_filters.append(f)
+        for col, vals in eq_by_col.items():
+            uniq = list(dict.fromkeys(vals))
+            if len(uniq) == 1:
+                combined_filters.append(f"{col} = '{uniq[0]}'")
+            else:
+                quoted = ", ".join(f"'{v}'" for v in uniq)
+                combined_filters.append(f"{col} IN ({quoted})")
+        combined_filters = list(dict.fromkeys(combined_filters))
+
         # Also check if metric.filter or any user filter references an external table
-        all_filter_checks = list(filters or [])
+        all_filter_checks = list(combined_filters)
         if metric.filter:
             all_filter_checks.append(metric.filter)
 
@@ -145,8 +166,8 @@ class SemanticQueryResolver:
         where_clauses: list[str] = []
         if metric.filter:
             where_clauses.append(f"({metric.filter})")
-        if filters:
-            for f in filters:
+        if combined_filters:
+            for f in combined_filters:
                 where_clauses.append(f"({f})")
 
         # Table hygiene predicates are governed via model filters in semantic_layer.yaml

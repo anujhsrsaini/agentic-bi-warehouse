@@ -74,10 +74,27 @@ def route_node(g: GraphState) -> GraphState:
 def ground_node(g: GraphState) -> GraphState:
     state = graph_to_state(g)
     grounded = CategoricalEntityGrounder().ground_entities(state.question)
-    state.grounded_entities = {f"{t}.{c}": v for t, c, v, _conf in grounded}
-    # Append grounded filters (deterministic, safe)
+
+    # Group multiple values for the same column into one IN (...) predicate.
+    # "credit card vs boleto vs voucher" means OR, never ANDed equalities.
+    grouped: dict[tuple[str, str], list[str]] = {}
     for tbl, col, val, _conf in grounded:
-        clause = f"{tbl}.{col} = '{val}'"
+        vals = grouped.setdefault((tbl, col), [])
+        if val not in vals:
+            vals.append(val)
+
+    state.grounded_entities = {
+        f"{tbl}.{col}": vals[0] if len(vals) == 1 else vals
+        for (tbl, col), vals in grouped.items()
+    }
+
+    # Append grounded filters (deterministic, safe)
+    for (tbl, col), vals in grouped.items():
+        if len(vals) == 1:
+            clause = f"{tbl}.{col} = '{vals[0]}'"
+        else:
+            quoted = ", ".join(f"'{v}'" for v in vals)
+            clause = f"{tbl}.{col} IN ({quoted})"
         if clause not in state.filters:
             state.filters.append(clause)
 
@@ -121,6 +138,7 @@ def generate_sql_node(g: GraphState) -> GraphState:
                     state.intent.value,
                     state.metric_name,
                     state.dimensions,
+                    state.filters,
                 )
             )
             if out.certified_metric:

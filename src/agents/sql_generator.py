@@ -29,11 +29,28 @@ class SQLGeneratorAgent:
         """Generate canonical SQL and attach to state."""
         # 1. Ground any entities mentioned in the query
         grounded = self.grounder.ground_entities(state.question)
-        state.grounded_entities = {f"{g[0]}.{g[1]}": g[2] for g in grounded}
+
+        # Group multiple values for the same column into one IN (...) predicate.
+        grouped: dict[tuple[str, str], list[str]] = {}
+        for tbl, col, val, _conf in grounded:
+            vals = grouped.setdefault((tbl, col), [])
+            if val not in vals:
+                vals.append(val)
+
+        state.grounded_entities = {
+            f"{tbl}.{col}": vals[0] if len(vals) == 1 else vals
+            for (tbl, col), vals in grouped.items()
+        }
 
         filter_clauses = list(state.filters)
-        for tbl, col, val, conf in grounded:
-            filter_clauses.append(f"{tbl}.{col} = '{val}'")
+        for (tbl, col), vals in grouped.items():
+            if len(vals) == 1:
+                clause = f"{tbl}.{col} = '{vals[0]}'"
+            else:
+                quoted = ", ".join(f"'{v}'" for v in vals)
+                clause = f"{tbl}.{col} IN ({quoted})"
+            if clause not in filter_clauses:
+                filter_clauses.append(clause)
 
         if state.intent == UserIntent.CERTIFIED_METRIC and state.metric_name:
             # Track 1: Certified Semantic Compilation

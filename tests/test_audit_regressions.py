@@ -60,7 +60,7 @@ def test_freight_value_ratio_synonym():
 
 def test_resolver_limit_and_ascending(semantic_resolver):
     sql = semantic_resolver.resolve_metric_query(
-        "avg_review_score", dimensions=["product_category_name"], limit=10, order_ascending=True
+        "avg_review_score", dimensions=["customer_state"], limit=10, order_ascending=True
     )
     assert "LIMIT 10" in sql
     assert "ORDER BY avg_review_score ASC" in sql
@@ -105,3 +105,30 @@ def test_new_vs_repeat_count_split(orchestrator):
     assert state.execution_result is not None
     cols = state.execution_result.column_names
     assert "new_customers" in cols and "repeat_customers" in cols
+
+
+def test_multi_value_categorical_filter_uses_in_not_and(orchestrator):
+    state = orchestrator.process_query(
+        "Show distribution of payment methods (credit card vs boleto vs voucher)"
+    )
+    joined = " ".join(state.filters)
+    assert "order_payments.payment_type IN (" in joined
+    for val in ("credit_card", "boleto", "voucher"):
+        assert val in joined
+    assert "order_payments.payment_type =" not in joined
+
+
+def test_resolver_combines_same_column_equalities():
+    from src.semantic.resolver import SemanticQueryResolver
+
+    sql = SemanticQueryResolver().resolve_metric_query(
+        "total_payment_value",
+        ["payment_type"],
+        filters=[
+            "order_payments.payment_type = 'boleto'",
+            "order_payments.payment_type = 'credit_card'",
+            "order_payments.payment_type = 'voucher'",
+        ],
+    )
+    assert "payment_type IN ('boleto', 'credit_card', 'voucher')" in sql
+    assert "payment_type = 'boleto' AND" not in sql
